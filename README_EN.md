@@ -31,8 +31,10 @@ no cloud, no telemetry, your text never leaves the machine.
 ## ✨ Features
 
 - **🌀 Floating bubble widget**: breathing at 120 FPS with sub-pixel rendering; flies smoothly to your cursor after a capture, click to expand the panel.
-- **✍️ Selection quick-translate** (default `Ctrl+Alt+Q`): select text anywhere, press the hotkey — the tool simulates `Ctrl+C` to capture it.
-- **📷 Screenshot OCR translation** (default `Ctrl+Alt+E`): drag a region on a screen snapshot → RapidOCR → instant translation.
+- **✍️ Selection quick-translate** (default `Alt+Q`): select text anywhere, press the hotkey — the tool simulates `Ctrl+C` (clipboard backed up and restored), moves the panel and bubble next to your cursor, and streams the translation immediately.
+- **📷 Screenshot OCR translation** (default `Alt+W`): drag a rounded selection on a screen snapshot → RapidOCR → instant translation.
+- **🖱️ Click-outside auto-hide**: the panel smoothly collapses on focus loss **keeping your translation history**; a 📌 pin in the title bar pauses auto-hide; bubble clicks are debounced (200 ms) to avoid close/reopen flicker.
+- **⌨️ Visual hotkey recorder**: the ⚙ button in the title bar opens a preferences view — click a pill, press the new combo (Esc cancels, Backspace disables), applied instantly with conflict detection (soft red hint).
 - **⚡ Streaming output**: OpenAI-compatible `/v1/chat/completions` (SSE); 256-entry LRU cache returns repeated text instantly.
 - **🎮 Auto GPU acceleration with safe fallback**: `acceleration_device = auto/gpu/cpu`; full offload via CUDA/Vulkan (3–5× faster on an RTX 5070), automatic fallback to CPU on any failure.
 - **🛌 AI idle recycling**: the engine sleeps after 15 idle minutes to free VRAM, and wakes automatically on the next translation.
@@ -51,8 +53,10 @@ no cloud, no telemetry, your text never leaves the machine.
 | Action | Shortcut | Notes |
 | --- | --- | --- |
 | Open the panel | Click the bubble | Bubble docks 16 px to the panel's right |
-| Selection translate | `Ctrl+Alt+Q` | Bubble flies to the cursor, click it to read the result |
-| Screenshot OCR | `Ctrl+Alt+E` | Drag a region, `Esc` to cancel |
+| Selection translate | `Alt+Q` | Panel and bubble fly to the cursor, auto-filled and translated |
+| Screenshot OCR | `Alt+W` | Rounded full-screen selection, `Esc` to cancel |
+| Pin panel | Title-bar 📌 | While pinned, clicking outside won't auto-hide |
+| Preferences | Title-bar ⚙ / right-click bubble | Record custom global hotkeys |
 | Translate now | `Ctrl+Enter` | Skips the 600 ms debounce |
 | Switch direction | Pill next to the title | Auto (zh↔en) → zh→en → en→zh |
 | Quit | Right-click the bubble | Open panel / capture / screenshot / quit |
@@ -94,8 +98,8 @@ same scripts on a machine without `nvidia-smi` to get the universal CPU build.
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `hotkey` / `hotkey_display` | `<ctrl>+<alt>+q` / `Ctrl+Alt+Q` | Selection-translate hotkey |
-| `ocr_enabled` / `ocr_hotkey` / `ocr_hotkey_display` | `true` / `<ctrl>+<alt>+e` / `Ctrl+Alt+E` | Screenshot OCR translation |
+| `hotkey` / `hotkey_display` | `<alt>+q` / `Alt+Q` | Selection-translate hotkey (visual recorder via ⚙, empty = disabled) |
+| `ocr_enabled` / `ocr_hotkey` / `ocr_hotkey_display` | `true` / `<alt>+w` / `Alt+W` | Screenshot OCR translation |
 | `server_port` | `8989` | Local engine port (1024–65535; changing it restarts the engine) |
 | `acceleration_device` | `auto` | Inference device: auto / gpu / cpu |
 | `ai_idle_minutes` | `15` | Idle minutes before the engine sleeps (0 = never) |

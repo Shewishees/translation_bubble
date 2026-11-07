@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -49,9 +50,22 @@ class SettingsManagerTests(unittest.TestCase):
         snapshot = manager.load()
         self.assertEqual(snapshot["server_port"], DEFAULTS["server_port"])
         self.assertEqual(snapshot["acceleration_device"], "auto")
-        self.assertEqual(snapshot["hotkey"], "<ctrl>+<alt>+q")
+        self.assertEqual(snapshot["hotkey"], "<alt>+q")
+        self.assertEqual(snapshot["hotkey_display"], "Alt+Q")
+        self.assertEqual(snapshot["ocr_hotkey"], "<alt>+w")
         self.assertEqual(snapshot["ai_idle_minutes"], DEFAULTS["ai_idle_minutes"])
-        self.assertFalse(snapshot["ocr_enabled"])
+        self.assertTrue(snapshot["ocr_enabled"])
+
+    def test_explicit_empty_hotkey_is_preserved(self):
+        (self.root / "settings.json").write_text(
+            json.dumps({"hotkey": "", "ocr_hotkey": ""}),
+            encoding="utf-8",
+        )
+        manager = SettingsManager(self.root)
+        snapshot = manager.load()
+        self.assertEqual(snapshot["hotkey"], "")
+        self.assertEqual(snapshot["hotkey_display"], "未设置")
+        self.assertEqual(snapshot["ocr_hotkey"], "")
 
     def test_save_writes_poptrans_compatible_fields(self):
         manager = SettingsManager(self.root)
@@ -158,10 +172,12 @@ class NativeUiTests(unittest.TestCase):
         cls.qt_app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        with patch.object(ui.NativeTranslator, "start_bootstrap", lambda _self: None), \
+        # 不在测试机全局注册热键（可能与运行中的实例/其他软件冲突）
+        with patch.object(ui.NativeTranslator, "start_bootstrap", lambda *a, **k: None), \
                 patch.object(ui, "cleanup_legacy_autostart", lambda: None), \
                 patch.object(ui, "set_autostart", lambda _enabled: None), \
-                patch.object(ui, "is_autostart_enabled", lambda: False):
+                patch.object(ui, "is_autostart_enabled", lambda: False), \
+                patch.object(ui.HotkeyManager, "reconfigure", lambda self, *a, **k: {"translate": True, "ocr": True}):
             self.controller = ui.NativeTranslator(self.qt_app)
 
     def tearDown(self):
@@ -258,20 +274,101 @@ class NativeUiTests(unittest.TestCase):
         self.assertFalse(controller.panel.isVisible())
         self.assertEqual(controller.bubble.pos(), controller.bubble_home)
 
-    def test_bubble_flies_to_cursor_on_capture(self):
+    def test_capture_auto_opens_panel_near_cursor(self):
         controller = self.controller
         controller._capture_cursor = QPoint(300, 300)
-        controller.on_captured("hello world")
-        self.assertEqual(controller.pending_source, "hello world")
-        target = controller._bubble_target_for_cursor(QPoint(300, 300))
-        QTest.qWait(300)
-        self.assertEqual(controller.bubble.pos(), target)
-        # 点击气泡展开面板后，划词内容自动填入并立即翻译
-        with patch.object(controller, "start_translation", lambda _self: None):
-            controller.open_panel()
-            QTest.qWait(50)
+        with patch.object(controller, "start_translation", lambda *a, **k: None):
+            controller.on_captured("hello world")
+            QTest.qWait(300)
+        # 自动展开面板、填入划词文本并立即开始翻译
+        self.assertTrue(controller.panel.isVisible())
         self.assertEqual(controller.panel.source.toPlainText(), "hello world")
         self.assertIsNone(controller.pending_source)
+        # 气泡停靠在面板右侧外部 16px（视觉间距）
+        self.assertEqual(
+            controller.bubble.x(),
+            controller.panel.x() + controller.panel.width() + 16 - ui.BubbleWindow.MARGIN,
+        )
+
+    def test_focus_loss_auto_hides_but_keeps_state(self):
+        controller = self.controller
+        controller.toggle_panel()
+        QTest.qWait(300)
+        controller.panel.source.blockSignals(True)
+        controller.panel.source.setPlainText("保留文本")
+        controller.panel.source.blockSignals(False)
+        controller.on_focus_window_changed(None)
+        QTest.qWait(250)
+        self.assertFalse(controller.panel.isVisible())
+        # 隐藏不清空：输入与译文状态保留
+        self.assertEqual(controller.panel.source.toPlainText(), "保留文本")
+        # 钉住后点击外部不再自动收起
+        controller.panel.show()
+        controller.panel.setWindowOpacity(1.0)
+        controller.panel.pin_button.setChecked(True)
+        controller.on_focus_window_changed(None)
+        QTest.qWait(250)
+        self.assertTrue(controller.panel.isVisible())
+        controller.panel.pin_button.setChecked(False)
+
+    def test_bubble_click_debounce_after_autohide(self):
+        controller = self.controller
+        controller.toggle_panel()
+        QTest.qWait(300)
+        # 真实时序：点击气泡 → 面板失焦自动收起 → 气泡 mouseRelease 紧随其后（<200ms）
+        controller.on_focus_window_changed(None)
+        controller.toggle_panel()   # 防抖窗口内：忽略展开点击，防止"关了又开"闪烁
+        QTest.qWait(250)
+        self.assertFalse(controller.panel.isVisible())
+        controller._panel_auto_hidden_at = time.monotonic() - 0.5
+        controller.toggle_panel()   # 防抖窗口外：正常展开
+        QTest.qWait(300)
+        self.assertTrue(controller.panel.isVisible())
+
+    def test_settings_view_toggle_and_recorder_display(self):
+        panel = self.controller.panel
+        panel.show()
+        self.qt_app.processEvents()
+        self.assertTrue(panel.editor_card.isVisible())
+        panel.show_settings_view(True)
+        self.qt_app.processEvents()
+        self.assertTrue(panel.settings_visible)
+        self.assertTrue(panel.settings_card.isVisible())
+        self.assertFalse(panel.editor_card.isVisible())
+        self.assertEqual(panel.translate_recorder.text(), "Alt+Q")
+        self.assertEqual(panel.ocr_recorder.text(), "Alt+W")
+        panel.show_settings_view(False)
+        self.qt_app.processEvents()
+        self.assertTrue(panel.editor_card.isVisible())
+
+    def test_hotkey_recorder_commit_and_conflict_hint(self):
+        controller = self.controller
+        saved: dict = {}
+
+        def fake_save(updates):
+            saved.update(updates)
+            return controller.settings.snapshot()
+
+        with patch.object(controller.settings, "save", side_effect=fake_save), \
+                patch.object(controller.hotkeys, "reconfigure", return_value={"translate": True, "ocr": True}):
+            controller.on_hotkey_recorded("translate", "<alt>+q")
+        self.assertEqual(saved.get("hotkey"), "<alt>+q")
+        self.assertEqual(saved.get("hotkey_display"), "Alt+Q")
+        self.assertEqual(controller.panel.translate_recorder.text(), "Alt+Q")
+        self.assertTrue(controller.panel.hotkey_hint.isHidden())
+
+        with patch.object(controller.settings, "save", side_effect=fake_save), \
+                patch.object(controller.hotkeys, "reconfigure", return_value={"translate": True, "ocr": False}):
+            controller.on_hotkey_recorded("ocr", "<ctrl>+<shift>+s")
+        self.assertFalse(controller.panel.hotkey_hint.isHidden())
+        self.assertIn("快捷键冲突，请更换组合", controller.panel.hotkey_hint.text())
+
+    def test_hotkey_reconfigure_supports_empty_disable(self):
+        manager = ui.HotkeyManager()
+        result = manager.reconfigure("", "", True)
+        self.assertTrue(result["translate"])
+        self.assertEqual(manager._bindings, {})
+        manager.unregister_all()
 
     def test_settings_hot_reload_restarts_engine(self):
         controller = self.controller

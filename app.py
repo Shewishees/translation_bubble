@@ -47,6 +47,7 @@ from PySide6.QtGui import (
     QFont,
     QFontDatabase,
     QIcon,
+    QKeySequence,
     QPainter,
     QPainterPath,
     QPen,
@@ -74,7 +75,7 @@ from diagnostics import record_diagnostic
 from engine_supervisor import EngineSupervisor
 from hotkey_manager import HotkeyManager
 from screen_capture import ScreenCaptureOverlay
-from settings_manager import SettingsManager
+from settings_manager import SettingsManager, hotkey_display_from_expression
 from text_capture import capture_selected_text
 
 
@@ -546,8 +547,9 @@ class BubbleWindow(QWidget):
     open_requested = Signal()
     capture_requested = Signal()
     ocr_requested = Signal()
+    settings_requested = Signal()
 
-    BUBBLE_TIP = "本地翻译：点击输入 · Ctrl+Alt+Q 划词 · Ctrl+Alt+E 截图"
+    BUBBLE_TIP = "本地翻译：点击输入 · Alt+Q 划词 · Alt+W 截图"
 
     MARGIN = 12                    # 每侧透明边距（容纳阴影 + 浮动位移空间）
     VISUAL_SIZE = 44               # 气泡视觉盒边长（原 88 的一半）
@@ -758,6 +760,7 @@ class BubbleWindow(QWidget):
             open_action = menu.addAction("打开翻译面板")
             capture_action = menu.addAction("划词翻译")
             ocr_action = menu.addAction("截图翻译")
+            settings_action = menu.addAction("偏好设置")
             menu.addSeparator()
             quit_action = menu.addAction("退出翻译气泡")
             chosen = menu.exec(event.globalPosition().toPoint())
@@ -767,6 +770,8 @@ class BubbleWindow(QWidget):
                 self.capture_requested.emit()
             elif chosen is ocr_action:
                 self.ocr_requested.emit()
+            elif chosen is settings_action:
+                self.settings_requested.emit()
             elif chosen is quit_action:
                 self.quit_requested.emit()
             return
@@ -809,11 +814,168 @@ class BubbleWindow(QWidget):
         super().mouseReleaseEvent(event)
 
 
+_MODIFIER_KEYS = {
+    Qt.Key.Key_Control,
+    Qt.Key.Key_Alt,
+    Qt.Key.Key_Shift,
+    Qt.Key.Key_Meta,
+}
+
+
+class HotkeyRecorder(QPushButton):
+    """快捷键录制胶囊。
+
+    交互（对齐需求）：点击胶囊进入录制态（全局热键由控制器临时注销）；
+    按住组合键实时预览，松开非修饰键即完成绑定；Esc 取消；
+    Backspace 清空快捷键（= 停用该动作）。纯主键（无修饰键）不予绑定。
+    """
+
+    recording_started = Signal()
+    recording_stopped = Signal()
+    hotkey_recorded = Signal(str)   # "<mods>+key" 表达式；"" = 清空停用
+
+    def __init__(self, action: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__("未设置", parent)
+        self.action = action
+        self._recording = False
+        self._mods = 0
+        self._main_key = 0
+        self.setFixedWidth(150)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setObjectName("hotkeyPill")
+
+    def set_display(self, text: str) -> None:
+        if not self._recording:
+            self.setText(text or "未设置")
+
+    def mousePressEvent(self, event) -> None:
+        if not self._recording and event.button() == Qt.MouseButton.LeftButton:
+            self.start_recording()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def start_recording(self) -> None:
+        self._recording = True
+        self._mods = 0
+        self._main_key = 0
+        self.setText("请按下快捷键…")
+        self.setProperty("recording", True)
+        self._repolish()
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+        self.recording_started.emit()
+
+    def stop_recording(self) -> None:
+        was_recording = self._recording
+        self._recording = False
+        self._mods = 0
+        self._main_key = 0
+        self.setProperty("recording", False)
+        self._repolish()
+        if was_recording:
+            self.recording_stopped.emit()
+
+    def cancel_recording(self) -> None:
+        self.stop_recording()
+
+    def _repolish(self) -> None:
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def keyPressEvent(self, event) -> None:
+        if not self._recording:
+            super().keyPressEvent(event)
+            return
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self.stop_recording()
+            event.accept()
+            return
+        if key == Qt.Key.Key_Backspace:
+            self.stop_recording()
+            self.setText("未设置")
+            self.hotkey_recorded.emit("")
+            event.accept()
+            return
+        if key in _MODIFIER_KEYS:
+            self._mods = int(event.modifiers())
+            self._refresh_preview()
+            event.accept()
+            return
+        self._mods = int(event.modifiers())
+        self._main_key = key
+        self._refresh_preview()
+        event.accept()
+
+    def keyReleaseEvent(self, event) -> None:
+        if self._recording and self._main_key and event.key() == self._main_key:
+            self._main_key = 0
+            has_mods = self._mods != 0
+            expr = self._build_expression()
+            if expr is None:
+                self.setText("不支持该按键，请换一个…")
+                event.accept()
+                return
+            if not has_mods:
+                self.setText("请至少搭配 Ctrl / Alt / Shift…")
+                event.accept()
+                return
+            self.stop_recording()
+            self.setText(hotkey_display_from_expression(expr))
+            self.hotkey_recorded.emit(expr)
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
+
+    def _refresh_preview(self) -> None:
+        parts = self._modifier_names()
+        main = QKeySequence(self._main_key).toString() if self._main_key else ""
+        if main:
+            self.setText(" + ".join(parts + [main]))
+        else:
+            prefix = " + ".join(parts)
+            self.setText(f"{prefix} + …" if prefix else "请按下快捷键…")
+
+    def _modifier_names(self) -> list:
+        mods = self._mods
+        parts = []
+        if mods & int(Qt.KeyboardModifier.ControlModifier):
+            parts.append("Ctrl")
+        if mods & int(Qt.KeyboardModifier.AltModifier):
+            parts.append("Alt")
+        if mods & int(Qt.KeyboardModifier.ShiftModifier):
+            parts.append("Shift")
+        if mods & int(Qt.KeyboardModifier.MetaModifier):
+            parts.append("Win")
+        return parts
+
+    def _build_expression(self) -> Optional[str]:
+        main = QKeySequence(self._main_key).toString().strip().lower()
+        if not main:
+            return None
+        pieces = []
+        mods = self._mods
+        if mods & int(Qt.KeyboardModifier.ControlModifier):
+            pieces.append("<ctrl>")
+        if mods & int(Qt.KeyboardModifier.AltModifier):
+            pieces.append("<alt>")
+        if mods & int(Qt.KeyboardModifier.ShiftModifier):
+            pieces.append("<shift>")
+        if mods & int(Qt.KeyboardModifier.MetaModifier):
+            pieces.append("<win>")
+        if not pieces:
+            return ""
+        return "+".join(pieces + [main])
+
+
 class PanelWindow(QWidget):
     moved = Signal(QPoint)
     close_requested = Signal()
     retry_requested = Signal()
     direction_changed = Signal()
+    settings_toggled = Signal()
+    hotkey_recorded = Signal(str, str)   # (action, 表达式；""=清空停用)
+    recording_active = Signal(bool)
 
     def __init__(self) -> None:
         super().__init__(None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
@@ -850,9 +1012,21 @@ class PanelWindow(QWidget):
         close_button.setObjectName("closeButton")
         close_button.setFixedSize(28, 28)
         close_button.clicked.connect(self.close_requested)
+        self.pin_button = QPushButton("📌", header)
+        self.pin_button.setObjectName("pinButton")
+        self.pin_button.setFixedSize(28, 28)
+        self.pin_button.setCheckable(True)
+        self.pin_button.setToolTip("钉住面板：点击空白处不自动收起")
+        self.gear_button = QPushButton("⚙", header)
+        self.gear_button.setObjectName("gearButton")
+        self.gear_button.setFixedSize(28, 28)
+        self.gear_button.setToolTip("偏好设置：自定义全局快捷键")
+        self.gear_button.clicked.connect(self.settings_toggled)
         header_layout.addWidget(language)
         header_layout.addWidget(title)
         header_layout.addStretch(1)
+        header_layout.addWidget(self.pin_button)
+        header_layout.addWidget(self.gear_button)
         header_layout.addWidget(close_button)
         root.addWidget(header)
 
@@ -920,6 +1094,52 @@ class PanelWindow(QWidget):
         editor_layout.addWidget(self.output)
         root.addWidget(self.editor_card)
 
+        # ── 偏好设置视图（与编辑卡片同高，互斥显示） ────────────
+        self.settings_card = QFrame(card)
+        self.settings_card.setObjectName("editorCard")
+        self.settings_card.setFixedHeight(203)
+        settings_layout = QVBoxLayout(self.settings_card)
+        settings_layout.setContentsMargins(16, 14, 16, 10)
+        settings_layout.setSpacing(8)
+
+        settings_title = QLabel("偏好设置", self.settings_card)
+        settings_title.setObjectName("settingsTitle")
+        settings_layout.addWidget(settings_title)
+
+        def _hotkey_row(label_text: str, action: str) -> HotkeyRecorder:
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            label = QLabel(label_text, self.settings_card)
+            label.setObjectName("settingsLabel")
+            recorder = HotkeyRecorder(action, self.settings_card)
+            recorder.hotkey_recorded.connect(
+                lambda expr, a=action: self.hotkey_recorded.emit(a, expr)
+            )
+            recorder.recording_started.connect(lambda: self.recording_active.emit(True))
+            recorder.recording_stopped.connect(lambda: self.recording_active.emit(False))
+            row.addWidget(label)
+            row.addStretch(1)
+            row.addWidget(recorder)
+            settings_layout.addLayout(row)
+            return recorder
+
+        self.translate_recorder = _hotkey_row("划词翻译", "translate")
+        self.ocr_recorder = _hotkey_row("识图翻译（OCR）", "ocr")
+
+        self.hotkey_hint = QLabel(self.settings_card)
+        self.hotkey_hint.setObjectName("conflictHint")
+        self.hotkey_hint.setWordWrap(True)
+        self.hotkey_hint.hide()
+        settings_layout.addWidget(self.hotkey_hint)
+        settings_layout.addStretch(1)
+
+        settings_caption = QLabel("点击胶囊后按下新组合键；Esc 取消，Backspace 清空并停用", self.settings_card)
+        settings_caption.setObjectName("settingsCaption")
+        settings_layout.addWidget(settings_caption)
+
+        self.settings_card.hide()
+        root.addWidget(self.settings_card)
+
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)
         footer.setSpacing(10)
@@ -966,6 +1186,17 @@ class PanelWindow(QWidget):
             QPushButton#retryButton { color: #1D1D1F; background: #FFFFFF; border: 1px solid #D2D2D7; border-radius: 13px; padding: 0 10px; font-size: 11px; }
             QPushButton#retryButton:hover { background: #F0F0F2; border-color: #C7C7CC; }
             QPushButton#retryButton:pressed { padding-top: 2px; }
+            QPushButton#pinButton, QPushButton#gearButton { color: #A1A1A6; background: transparent; border: 0; border-radius: 8px; font-size: 13px; }
+            QPushButton#pinButton:hover, QPushButton#gearButton:hover { background: #E5E5EA; color: #6E6E73; }
+            QPushButton#pinButton:checked { background: #EAF2FF; }
+            QPushButton#gearButton[active="true"] { background: #EAF2FF; color: #0A84FF; }
+            QPushButton#hotkeyPill { color: #1D1D1F; background: #FFFFFF; border: 1px solid #D2D2D7; border-radius: 13px; font-size: 11px; padding: 0 10px; }
+            QPushButton#hotkeyPill:hover { border-color: #A1A1A6; }
+            QPushButton#hotkeyPill[recording="true"] { background: #EAF2FF; border-color: #0A84FF; color: #0A84FF; }
+            QLabel#settingsTitle { font-size: 13px; font-weight: 700; }
+            QLabel#settingsLabel { color: #3A3A3C; font-size: 12px; }
+            QLabel#settingsCaption { color: #A1A1A6; font-size: 10px; }
+            QLabel#conflictHint { color: #C2554F; font-size: 11px; }
             """
         )
 
@@ -1027,6 +1258,38 @@ class PanelWindow(QWidget):
     def direction_state(self) -> str:
         return DIRECTION_STATES[self._direction_index]
 
+    # ── 视图切换 / 图钉 / 快捷键显示 ────────────────────────
+
+    @property
+    def pinned(self) -> bool:
+        return self.pin_button.isChecked()
+
+    @property
+    def settings_visible(self) -> bool:
+        return self.settings_card.isVisible()
+
+    def show_settings_view(self, show: bool) -> None:
+        self.settings_card.setVisible(show)
+        self.editor_card.setVisible(not show)
+        self.gear_button.setProperty("active", show)
+        self.gear_button.style().unpolish(self.gear_button)
+        self.gear_button.style().polish(self.gear_button)
+
+    def set_hotkey_display(self, action: str, text: str) -> None:
+        recorder = self.translate_recorder if action == "translate" else self.ocr_recorder
+        recorder.set_display(text)
+
+    def set_conflict_hint(self, message: str) -> None:
+        if message:
+            self.hotkey_hint.setText(message)
+            self.hotkey_hint.show()
+        else:
+            self.hotkey_hint.hide()
+
+    def cancel_recording(self) -> None:
+        for recorder in (self.translate_recorder, self.ocr_recorder):
+            recorder.cancel_recording()
+
 
 class NativeTranslator:
     def __init__(self, app: QApplication) -> None:
@@ -1052,6 +1315,11 @@ class NativeTranslator:
         self.panel.autostart_toggled.connect(self.on_autostart_toggled)
         self.panel.source.textChanged.connect(self.schedule_translation)
         self.panel.source.submit_requested.connect(self.start_translation)
+        self.panel.settings_toggled.connect(self.toggle_settings_view)
+        self.panel.hotkey_recorded.connect(self.on_hotkey_recorded)
+        self.panel.recording_active.connect(self.on_recording_active)
+        self.app.focusWindowChanged.connect(self.on_focus_window_changed)
+        self.bubble.settings_requested.connect(self.open_settings)
 
         self.supervisor = EngineSupervisor(
             ROOT,
@@ -1090,6 +1358,10 @@ class NativeTranslator:
         self.closing = False
         self.device_info: dict = {}
         self._bubble_animation: Optional[QPropertyAnimation] = None
+        self._panel_fade: Optional[QPropertyAnimation] = None
+        self._panel_auto_hidden_at = 0.0
+        self._recording_hotkey = False
+        self._hotkey_status: dict = {}
 
         cleanup_legacy_autostart()
         self._sync_autostart(bool(self.settings.get("launch_at_login")), initial=True)
@@ -1130,16 +1402,6 @@ class NativeTranslator:
         max_x = screen.right() - self.bubble.width() - 8
         x = min(x, max_x)
         y = self.panel.y() + self.panel.height() - self.bubble.height() - 10 + m
-        y = max(screen.top() + 8 - m, min(y, screen.bottom() - self.bubble.height() - 8 + m))
-        return QPoint(x, y)
-
-    def _bubble_target_for_cursor(self, cursor: QPoint) -> QPoint:
-        """划词触发后气泡飞至光标附近（右上方，屏幕内钳制）。"""
-        screen = self._screen()
-        m = self.bubble.MARGIN
-        x = cursor.x() + 20 - m
-        y = cursor.y() - (self.bubble.height() - 2 * m) - 6 - m
-        x = max(screen.left() + 8 - m, min(x, screen.right() - self.bubble.width() - 8 + m))
         y = max(screen.top() + 8 - m, min(y, screen.bottom() - self.bubble.height() - 8 + m))
         return QPoint(x, y)
 
@@ -1193,6 +1455,9 @@ class NativeTranslator:
         if self.panel.isVisible():
             self.hide_panel()
             return
+        # 刚因失焦自动收起的 200ms 内忽略气泡展开点击（防"关了又开"闪烁）
+        if time.monotonic() - self._panel_auto_hidden_at < 0.2:
+            return
         self.open_panel()
 
     def open_panel(self) -> None:
@@ -1206,8 +1471,9 @@ class NativeTranslator:
         self.panel.raise_()
         self.panel.activateWindow()
         self.bubble.raise_()
-        self._animate_bubble(self._bubble_target_for_panel())
-        self.bubble_home = self.bubble.pos()
+        dock_target = self._bubble_target_for_panel()
+        self._animate_bubble(dock_target)
+        self.bubble_home = dock_target
         self.panel.setWindowOpacity(0.0)
         animation = QPropertyAnimation(self.panel, b"windowOpacity", self.panel)
         animation.setDuration(180)
@@ -1218,9 +1484,56 @@ class NativeTranslator:
         if self.pending_source:
             QTimer.singleShot(0, self._begin_pending_translation)
 
-    def hide_panel(self) -> None:
+    def hide_panel(self, animated: bool = True) -> None:
+        """收起面板。仅 hide()，不清理任何输入/译文状态（保留翻译结果）。"""
+        self.panel.cancel_recording()
+        if not self.panel.isVisible():
+            self._animate_bubble(self.bubble_home)
+            return
+        if not animated:
+            self.panel.hide()
+            self.panel.setWindowOpacity(1.0)
+            self._animate_bubble(self.bubble_home)
+            return
+        fade = QPropertyAnimation(self.panel, b"windowOpacity", self.panel)
+        fade.setDuration(140)
+        fade.setStartValue(self.panel.windowOpacity())
+        fade.setEndValue(0.0)
+        fade.setEasingCurve(QEasingCurve.Type.InQuad)
+        fade.finished.connect(self._finish_panel_hide)
+        self._panel_fade = fade
+        fade.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+
+    def _finish_panel_hide(self) -> None:
         self.panel.hide()
+        self.panel.setWindowOpacity(1.0)
         self._animate_bubble(self.bubble_home)
+
+    # ── 失焦自动收起（点击外部空白区域） ────────────────────
+
+    def _our_focus_handles(self) -> set:
+        handles = set()
+        widgets = [self.panel, self.bubble]
+        if self.capture_overlay is not None:
+            widgets.append(self.capture_overlay)
+        for widget in widgets:
+            handle = widget.windowHandle()
+            if handle is not None:
+                handles.add(handle)
+        return handles
+
+    @Slot(object)
+    def on_focus_window_changed(self, focus_window) -> None:
+        """面板显示且未钉住时，焦点落到面板/气泡/截图层之外（桌面或其他
+        软件，Qt 侧表现为 None）→ 平滑收起。状态保留，仅隐藏。"""
+        if self.closing or not self.panel.isVisible() or self.panel.pinned:
+            return
+        if self._recording_hotkey:
+            return
+        if focus_window is not None and focus_window in self._our_focus_handles():
+            return
+        self._panel_auto_hidden_at = time.monotonic()
+        self.hide_panel()
 
     # ── 状态展示 ─────────────────────────────────────────────
 
@@ -1430,12 +1743,23 @@ class NativeTranslator:
                 QTimer.singleShot(2500, lambda: self.bubble.setToolTip(BubbleWindow.BUBBLE_TIP))
             return
         self.pending_source = text
-        target = self._bubble_target_for_cursor(self._capture_cursor)
-        self._animate_bubble(target)
-        self.bubble_home = target
+        # 面板与气泡平滑移动到光标附近（含屏幕边缘碰撞检测），自动展开并立即翻译
+        self.panel.move(self._panel_target_for_cursor(self._capture_cursor))
+        if self.panel.settings_visible:
+            self.panel.show_settings_view(False)
+        self.open_panel()
         self.bubble.pulse()
-        if self.panel.isVisible():
-            self._begin_pending_translation()
+
+    def _panel_target_for_cursor(self, cursor: QPoint) -> QPoint:
+        """划词唤起时面板出现在光标附近（屏幕边缘碰撞检测，保留气泡停靠空间）。"""
+        screen = self._screen()
+        m = self.bubble.MARGIN
+        x = cursor.x() + 24
+        y = cursor.y() - self.panel.height() - 24
+        max_x = screen.right() - self.panel.width() - self.bubble.width() - 24 + m
+        x = max(screen.left() + 8, min(x, max_x))
+        y = max(screen.top() + 8, min(y, screen.bottom() - self.panel.height() - 8))
+        return QPoint(x, y)
 
     # ── OCR 截图翻译 ─────────────────────────────────────────
 
@@ -1448,6 +1772,9 @@ class NativeTranslator:
             return
         if not self.supervisor.is_running:
             self.supervisor.ensure_running()
+        if self.panel.isVisible():
+            # 先收起面板，避免面板/气泡被截进快照
+            self.hide_panel(animated=False)
         overlay = ScreenCaptureOverlay()
         overlay.region_selected.connect(self.on_region_selected)
         overlay.cancelled.connect(self.on_capture_cancelled)
@@ -1466,7 +1793,16 @@ class NativeTranslator:
         self.capture_overlay = None
         if overlay is None:
             return
-        pixmap = overlay.snapshot.copy(rect)
+        # 高分屏适配：快照像素尺寸 = 逻辑尺寸 × devicePixelRatio，
+        # 选区是逻辑坐标，裁剪前必须等比换算，否则截图错位/模糊
+        dpr = overlay.snapshot.devicePixelRatio() or 1.0
+        device_rect = QRect(
+            round(rect.x() * dpr),
+            round(rect.y() * dpr),
+            round(rect.width() * dpr),
+            round(rect.height() * dpr),
+        ).intersected(overlay.snapshot.rect())
+        pixmap = overlay.snapshot.copy(device_rect)
         overlay.close()
         buffer = QBuffer()
         buffer.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -1475,6 +1811,9 @@ class NativeTranslator:
         buffer.close()
 
         self.open_panel()
+        self.panel.source.blockSignals(True)
+        self.panel.source.setPlainText("[正在识别图片文字...]")
+        self.panel.source.blockSignals(False)
         self.panel.set_translation("")
         self.set_status("正在识别截图文字…")
         self.ocr_thread = OcrTranslateThread(self.settings.base_url, png_bytes, self._target_lang())
@@ -1490,6 +1829,8 @@ class NativeTranslator:
         self.panel.set_translation(translation)
         self.set_status("")
         self.supervisor.touch()
+        if not source_text:
+            self.set_status("未识别到图片文字")
 
     @Slot(str, bool)
     def on_ocr_failed(self, message: str, engine_offline: bool) -> None:
@@ -1500,11 +1841,71 @@ class NativeTranslator:
     # ── 配置热加载 ────────────────────────────────────────────
 
     def apply_hotkeys(self) -> None:
-        self.hotkeys.reconfigure(
-            str(self.settings.get("hotkey")),
-            str(self.settings.get("ocr_hotkey")),
+        self._hotkey_status = self.hotkeys.reconfigure(
+            str(self.settings.get("hotkey") or ""),
+            str(self.settings.get("ocr_hotkey") or ""),
             bool(self.settings.get("ocr_enabled")),
         )
+        self._refresh_hotkey_displays()
+        self._refresh_hotkey_hint()
+
+    def _refresh_hotkey_displays(self) -> None:
+        self.panel.set_hotkey_display(
+            "translate", str(self.settings.get("hotkey_display") or "未设置")
+        )
+        self.panel.set_hotkey_display(
+            "ocr", str(self.settings.get("ocr_hotkey_display") or "未设置")
+        )
+
+    def _refresh_hotkey_hint(self) -> None:
+        names = {"translate": "划词翻译", "ocr": "识图翻译"}
+        failed = [names.get(action, action) for action, ok in self._hotkey_status.items() if not ok]
+        if failed:
+            self.panel.set_conflict_hint("快捷键冲突，请更换组合：" + "、".join(failed))
+        else:
+            self.panel.set_conflict_hint("")
+
+    @Slot()
+    def toggle_settings_view(self) -> None:
+        self.panel.show_settings_view(not self.panel.settings_visible)
+
+    @Slot()
+    def open_settings(self) -> None:
+        if not self.panel.isVisible():
+            self.open_panel()
+        self.panel.show_settings_view(True)
+        self.panel.raise_()
+        self.panel.activateWindow()
+
+    @Slot(bool)
+    def on_recording_active(self, recording: bool) -> None:
+        self._recording_hotkey = recording
+        if recording:
+            # 录制期间临时注销全局热键，避免按下新组合被全局拦截
+            self.hotkeys.unregister_all()
+        else:
+            self.apply_hotkeys()
+
+    @Slot(str, str)
+    def on_hotkey_recorded(self, action: str, expr: str) -> None:
+        expr = (expr or "").strip()
+        if action == "translate":
+            updates = {
+                "hotkey": expr,
+                "hotkey_display": hotkey_display_from_expression(expr) or "未设置",
+            }
+        else:
+            updates = {
+                "ocr_hotkey": expr,
+                "ocr_hotkey_display": hotkey_display_from_expression(expr) or "未设置",
+            }
+        try:
+            self.settings.save(updates)
+        except OSError:
+            self.panel.set_conflict_hint("配置写入失败，请重试")
+            return
+        # save 已抑制自身触发的热加载，这里手动重注册并刷新胶囊/提示
+        self.apply_hotkeys()
 
     def on_settings_changed(self, diff: dict) -> None:
         if "launch_at_login" in diff:

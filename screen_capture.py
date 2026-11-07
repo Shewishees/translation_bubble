@@ -10,12 +10,13 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 
 MIN_SELECTION_SIZE = 10
 DIM_COLOR = QColor(0, 0, 0, 110)
 BORDER_COLOR = QColor("#0A84FF")
+SELECTION_RADIUS = 10.0
 
 
 class ScreenCaptureOverlay(QWidget):
@@ -97,11 +98,16 @@ class ScreenCaptureOverlay(QWidget):
         if self._origin is not None and self._current is not None:
             rect = QRect(self._origin, self._current).normalized().intersected(self.rect())
             if rect.width() > 0 and rect.height() > 0:
-                # 选区内还原快照原亮度，形成"挖空"效果
+                # 选区内还原快照原亮度（圆角"挖空"效果）
+                rounded = QPainterPath()
+                rounded.addRoundedRect(rect, SELECTION_RADIUS, SELECTION_RADIUS)
+                painter.save()
+                painter.setClipPath(rounded)
                 painter.drawPixmap(rect, self.snapshot.copy(rect))
+                painter.restore()
             pen = QPen(BORDER_COLOR, 1.5)
             painter.setPen(pen)
-            painter.drawRect(rect.adjusted(0, 0, -1, -1))
+            painter.drawRoundedRect(rect.adjusted(0, 0, -1, -1), SELECTION_RADIUS, SELECTION_RADIUS)
             painter.setPen(QColor("#FFFFFF"))
             painter.setFont(QFont("Microsoft YaHei UI", 9))
             label = f"{rect.width()} × {rect.height()}  ·  松开完成，Esc 取消"

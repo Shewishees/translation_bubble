@@ -146,31 +146,39 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
 
     # ── 注册管理 ─────────────────────────────────────────────
 
-    def reconfigure(self, translate_expr: str, ocr_expr: str, ocr_enabled: bool) -> bool:
-        """按新配置重注册全部快捷键（注销旧键 → 注册新键）。"""
+    def reconfigure(self, translate_expr: str, ocr_expr: str, ocr_enabled: bool) -> dict:
+        """按新配置重注册全部快捷键（注销旧键 → 注册新键）。
+
+        返回 {action: 是否成功}；表达式留空视为"停用该动作"，记为成功。
+        """
         self.unregister_all()
         candidates = [
-            (HOTKEY_ID_TRANSLATE, "translate", translate_expr),
+            ("translate", HOTKEY_ID_TRANSLATE, translate_expr),
         ]
         if ocr_enabled:
-            candidates.append((HOTKEY_ID_OCR, "ocr", ocr_expr))
+            candidates.append(("ocr", HOTKEY_ID_OCR, ocr_expr))
 
-        success = True
-        for hotkey_id, action, expr in candidates:
+        result: dict = {}
+        for action, hotkey_id, expr in candidates:
+            expr = (expr or "").strip()
+            if not expr:
+                result[action] = True   # 显式留空 = 停用
+                continue
             parsed = parse_hotkey(expr)
             if parsed is None:
-                success = False
+                result[action] = False
                 continue
             modifiers, virtual_key = parsed
             if not user32.RegisterHotKey(
                 None, hotkey_id, modifiers | MOD_NOREPEAT, virtual_key
             ):
-                success = False
+                result[action] = False
                 continue
             self._bindings[hotkey_id] = (action, modifiers, virtual_key)
-        self._all_registered = success
-        self.registration_changed.emit(success)
-        return success
+            result[action] = True
+        self._all_registered = all(result.values())
+        self.registration_changed.emit(self._all_registered)
+        return result
 
     def unregister_all(self) -> None:
         for hotkey_id in list(self._bindings):

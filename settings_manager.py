@@ -21,11 +21,11 @@ DEFAULT_UI_IDLE_MINUTES = 5
 DEFAULT_AI_IDLE_MINUTES = 15
 
 DEFAULTS: Dict[str, Any] = {
-    "hotkey": "<ctrl>+<alt>+q",
-    "hotkey_display": "Ctrl+Alt+Q",
-    "ocr_enabled": False,
-    "ocr_hotkey": "<ctrl>+<alt>+e",
-    "ocr_hotkey_display": "Ctrl+Alt+E",
+    "hotkey": "<alt>+q",
+    "hotkey_display": "Alt+Q",
+    "ocr_enabled": True,
+    "ocr_hotkey": "<alt>+w",
+    "ocr_hotkey_display": "Alt+W",
     "logging_enabled": False,
     "server_port": DEFAULT_SERVER_PORT,
     "theme": "system",
@@ -114,15 +114,22 @@ class SettingsManager(QObject):
 
     @staticmethod
     def _apply_validation(data: Dict[str, Any], raw_keys) -> None:
-        # 对齐 config.go mergeDefaults / mergeLoadedDefaults 的回退规则
-        if not data.get("hotkey"):
+        # 对齐 config.go mergeDefaults / mergeLoadedDefaults 的回退规则。
+        # 快捷键允许显式留空（= 停用该动作），仅当字段"缺失"时回退默认值。
+        if "hotkey" not in raw_keys:
             data["hotkey"] = DEFAULTS["hotkey"]
-        if not data.get("hotkey_display"):
-            data["hotkey_display"] = DEFAULTS["hotkey_display"]
-        if not data.get("ocr_hotkey"):
+        if "hotkey_display" not in raw_keys or not data.get("hotkey_display"):
+            data["hotkey_display"] = (
+                hotkey_display_from_expression(data.get("hotkey") or "")
+                or "未设置"
+            )
+        if "ocr_hotkey" not in raw_keys:
             data["ocr_hotkey"] = DEFAULTS["ocr_hotkey"]
-        if not data.get("ocr_hotkey_display"):
-            data["ocr_hotkey_display"] = DEFAULTS["ocr_hotkey_display"]
+        if "ocr_hotkey_display" not in raw_keys or not data.get("ocr_hotkey_display"):
+            data["ocr_hotkey_display"] = (
+                hotkey_display_from_expression(data.get("ocr_hotkey") or "")
+                or "未设置"
+            )
         if not data.get("server_port"):
             data["server_port"] = DEFAULT_SERVER_PORT
         if data.get("theme") not in ("light", "dark", "system"):
