@@ -1,0 +1,46 @@
+name: Build (Windows)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 无 nvidia-smi 的 CI 环境走 CPU 分支（llama-cpp-python 官方预编译轮）
+      - name: Create build environment
+        shell: cmd
+        run: scripts\setup_build_env.bat
+
+      - name: Build AI engine + UI
+        shell: cmd
+        run: scripts\build_all.bat
+
+      - name: Pack release zip (model excluded, auto-downloaded on first run)
+        shell: cmd
+        run: scripts\package_zip.bat ${{ github.ref_name }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.ref_name }}
+          path: LocalTranslateBubble-v*.zip
+          if-no-files-found: error
+
+      - name: Attach zip to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: LocalTranslateBubble-v*.zip
+          fail_on_unmatched_files: true

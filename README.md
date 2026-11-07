@@ -1,106 +1,119 @@
-# 本地翻译悬浮气泡（PopTrans AI 引擎整合版）
+<div align="center">
 
-Windows 本地离线翻译工具：复古六色苹果 Logo 悬浮气泡 + macOS 浅色翻译面板。
-翻译能力完整对齐 [PopTrans](https://github.com/ifocus9/PopTrans) 的 Python 本地 AI 推理引擎：
-`backend/`（FastAPI + llama-cpp-python）加载腾讯 **Hy-MT2-1.8B GGUF** 模型推理，
-**RapidOCR** 提供截图文字识别，全部本地运行，不依赖 Node.js、npm 或在线翻译 API。
+<img src="images/bubble.png" width="96" alt="LocalTranslateBubble icon">
 
-## 核心特性
+# 本地翻译悬浮球 (translation_bubble)
 
-- **苹果气泡常驻**：气泡在桌面呼吸浮动；划词/截图后气泡平滑飞至光标附近，点击即展开翻译面板。
-- **划词快捷翻译**（默认 `Ctrl+Alt+Q`）：任意应用选中文本后按快捷键，自动模拟 `Ctrl+C` 取词。
-- **截图 OCR 翻译**（默认 `Ctrl+Alt+E`，`ocr_enabled` 开启后生效）：全屏框选 → RapidOCR 识别 → 立即翻译。
-- **流式输出**：OpenAI 兼容 `/v1/chat/completions`（SSE）流式返回，译文逐字出现。
-- **GPU 自动加速与安全降级**：`acceleration_device` 支持 `auto` / `gpu` / `cpu`，
-  优先启用 CUDA/Vulkan 卸载（`n_gpu_layers=-1`），失败平滑回退 CPU（`n_gpu_layers=0`）。
-- **AI 空闲回收**：`ai_idle_minutes`（默认 15 分钟）无请求后引擎自动退出释放显存/内存，
-  下次翻译自动重新拉起。
-- **LRU 结果缓存 / 长文分块 / 中英自动互译**：由 `backend/translator.py` 提供（与 PopTrans 一致）。
+**Windows 本地离线翻译悬浮球：双语对话气泡 + macOS 浅色翻译面板 + GGUF 本地大模型**
 
-## 启动
+[![Build (Windows)](https://github.com/Shewishees/translation_bubble/actions/workflows/build.yml/badge.svg)](https://github.com/Shewishees/translation_bubble/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20x64-blue)]()
+[![Engine](https://img.shields.io/badge/Engine-PopTrans%20AI-orange)](https://github.com/ifocus9/PopTrans)
 
-双击 `start.bat`。首次运行会自动安装依赖（含按显卡情况选择 llama-cpp-python 版本），
-并在引擎首次加载时下载 Hy-MT2 翻译模型（约 1.13GB，支持断点续传），
-进度显示在面板译文区。下载完成后完全离线。
+[简体中文](README.md) · [English](README_EN.md)
 
-## 配置（settings.json，保存即热加载）
+*划词翻译 · 截图 OCR · 流式输出 · GPU 自动加速 · 全程离线*
+
+<img src="images/preview.png" width="720" alt="LocalTranslateBubble 预览：翻译面板与悬浮气泡">
+
+</div>
+
+---
+
+**LocalTranslateBubble** 是一款 Windows 本地离线翻译工具：双语对话气泡常驻桌面呼吸浮动，
+划词或截图后一键翻译，译文在 macOS 风格浅色面板中**逐字流式输出**。
+推理能力整合自 [PopTrans](https://github.com/ifocus9/PopTrans) 的 Python AI 引擎：
+`llama.cpp` 在本地运行腾讯 **Hy-MT2-1.8B** GGUF 模型，**RapidOCR** 提供截图文字识别，
+全程离线、文本不出本机。
+
+## ✨ 核心特性
+
+- **🌀 悬浮气泡常驻**：气泡以 120FPS 亚像素动画呼吸浮动；划词/截图后平滑飞至光标附近，点击即展开面板。
+- **✍️ 划词快捷翻译**（默认 `Ctrl+Alt+Q`）：任意应用选中文本后按快捷键，自动模拟 `Ctrl+C` 取词。
+- **📷 截图 OCR 翻译**（默认 `Ctrl+Alt+E`）：全屏框选 → RapidOCR 识别 → 立即翻译。
+- **⚡ 流式输出**：OpenAI 兼容 `/v1/chat/completions`（SSE），译文逐字呈现；LRU 缓存 256 条，重复文本秒回。
+- **🎮 GPU 自动加速与安全降级**：`acceleration_device = auto/gpu/cpu`，优先 CUDA/Vulkan 全量卸载（实测 RTX 5070 提速 3~5 倍），失败自动回退 CPU。
+- **🛌 AI 空闲回收**：15 分钟无请求自动休眠释放显存，下次翻译毫秒级自动唤醒。
+- **⚙️ settings.json 热加载**：与 PopTrans 字段规范完全一致，保存即生效，无需重启。
+
+## 🚀 快速开始
+
+1. 从 [Releases](https://github.com/Shewishees/translation_bubble/releases) 下载 `LocalTranslateBubble-vX.Y.Z-windows-x64.zip` 并解压；
+2. 双击 `LocalTranslateBubble.exe`——首次运行自动下载翻译模型（约 1.1GB，支持断点续传；也可手动放入 `models/Hy-MT2-1.8B-GGUF/`）；
+3. 模型就绪后面板显示 **GPU 加速已就绪 / CPU 模式已就绪**，开始翻译。
+
+> 💡 系统要求：Windows 10/11 x64；CPU 模式建议 8GB 内存；GPU 模式显存 ≥ 2GB。
+
+## ⌨️ 快捷操作
+
+| 操作 | 快捷方式 | 说明 |
+| --- | --- | --- |
+| 打开翻译面板 | 点击气泡 | 气泡自动停靠面板右侧 16px |
+| 划词翻译 | `Ctrl+Alt+Q` | 气泡飞至光标附近，点击气泡查看译文 |
+| 截图 OCR 翻译 | `Ctrl+Alt+E` | 全屏框选，Esc 取消 |
+| 立即翻译 | `Ctrl+Enter` | 面板内跳过 600ms 防抖 |
+| 切换方向 | 标题旁药丸 | 自动（中英互译）→ 中→英 → 英→中 |
+| 退出 | 右键气泡 | 打开面板 / 划词 / 截图 / 退出 |
+
+## 💻 从源码运行
+
+```bat
+python -m pip install -r requirements.txt
+python bootstrap_backend.py      :: 首次：安装依赖并提示模型下载
+start.bat                        :: 启动（需 PySide6；模型缺失时引擎自动下载）
+```
+
+开发依赖：Python 3.12+（推荐）；GPU 加速请参考下文构建变体安装对应 `llama-cpp-python`。
+
+## 📦 构建发行版 / 自动构建
+
+一键打包为免安装软件（内置 Python 运行时，产出 `dist\`）：
+
+```bat
+scripts\setup_build_env.bat      :: 创建干净构建环境 .build-venv（自动检测 GPU/CPU）
+scripts\build_all.bat            :: 产出 dist\LocalTranslateBubble.exe + ai_engine.exe
+scripts\package_zip.bat 1.0.0    :: 打包发布 ZIP（默认排除 1.1GB 大模型）
+```
+
+**GitHub Actions 自动构建**：推送 `v*` 标签即自动在 `windows-latest` 上完成构建、打包 ZIP 并附带
+到对应 Release（工作流定义见 [`.github/workflows/build.yml`](.github/workflows/build.yml)）。
+
+| 产物 | 说明 |
+| --- | --- |
+| `dist\LocalTranslateBubble.exe` | PySide6 悬浮气泡界面（onedir） |
+| `dist\ai_engine.exe` | AI 引擎单文件（FastAPI + llama.cpp + RapidOCR；CUDA 运行时随包内置） |
+| `dist\models\rapidocr\` | OCR ONNX 模型 |
+
+构建变体：GPU 版随本机 NVIDIA 环境自动产出；CPU 版在无 N 卡环境执行同样脚本即可（或按
+PopTrans 指南安装 CPU 轮 `llama-cpp-python`）。
+
+## ⚙️ 配置（settings.json，保存即热加载）
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `hotkey` | `<ctrl>+<alt>+q` | 划词翻译快捷键（表达式格式与 PopTrans 兼容） |
-| `hotkey_display` | `Ctrl+Alt+Q` | 快捷键展示文本（自动派生） |
-| `ocr_enabled` | `false` | 是否启用截图 OCR 翻译 |
-| `ocr_hotkey` / `ocr_hotkey_display` | `<ctrl>+<alt>+e` / `Ctrl+Alt+E` | OCR 快捷键 |
-| `server_port` | `8989` | 本地引擎端口（1024–65535，修改后引擎自动重启） |
+| `hotkey` / `hotkey_display` | `<ctrl>+<alt>+q` / `Ctrl+Alt+Q` | 划词翻译快捷键 |
+| `ocr_enabled` / `ocr_hotkey` / `ocr_hotkey_display` | `true` / `<ctrl>+<alt>+e` / `Ctrl+Alt+E` | 截图 OCR 翻译 |
+| `server_port` | `8989` | 本地引擎端口（1024–65535，改动自动重启引擎） |
 | `acceleration_device` | `auto` | 推理设备：auto / gpu / cpu |
 | `ai_idle_minutes` | `15` | 引擎空闲多久自动休眠（0 = 永不） |
-| `ui_idle_minutes` | `5` | 预留（面板隐藏空闲） |
-| `theme` | `system` | 预留（当前固定浅色） |
-| `logging_enabled` | `false` | 引擎日志落盘 `translate.log` |
 | `launch_at_login` | `false` | 开机自启（HKCU Run 注册表键，面板复选框同步） |
+| `logging_enabled` | `false` | 引擎日志落盘 `translate.log` |
 
-## 本地 API（与 PopTrans 完全一致）
+## 🔌 本地 HTTP API（与 PopTrans 一致）
 
-- `GET /health` — 模型就绪状态与硬件信息
-- `POST /v1/chat/completions` — OpenAI 兼容翻译（支持 SSE 流式）
-- `POST /api/v1/ocr` — RapidOCR 识别
-- `POST /api/v1/ocr_translate` — OCR 识别 + 翻译
-
-详见 PopTrans 的 `docs/API.md`。
-
-## 使用
-
-- 点击苹果悬浮球打开主面板；展开时气泡停靠在面板右侧外部 16px 处，不遮挡按钮。
-- 输入文本，约 600ms 自动翻译；`Ctrl+Enter` 立即翻译。
-- 标题旁方向药丸：`自动`（中英互译）→ `中 → 英` → `英 → 中` 循环。
-- 译文区域支持选中复制；拖动气泡或面板顶栏时保持停靠关系。
-- 右键悬浮球：打开面板 / 划词翻译 / 截图翻译 / 退出。
-- 引擎空闲休眠后再次翻译会自动唤醒（显示"正在唤醒本地 GGUF 模型…"）。
-
-模型位于 `models/Hy-MT2-1.8B-GGUF/`，OCR 模型位于 `models/rapidocr/`；
-运行日志见 `.runtime/diagnostics.log`（不保存输入文本）与 `translate.log`（需开启 `logging_enabled`）。
-
-## 从源码构建发行版（打包为独立软件）
-
-无需修改任何代码即可把项目打包成免安装的发布目录（内置 Python 运行时，
-用户无需安装依赖）：
-
-```bat
-scripts\build_all.bat
-```
-
-构建流程（PyInstaller ≥6.0，见 `requirements-build.txt`）：
-
-| 步骤 | 产物 | 说明 |
+| 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `scripts\build_ai_engine.bat` | `dist\ai_engine.exe` | Python AI 引擎单文件封装（FastAPI + llama.cpp + RapidOCR；CUDA 构建自动收入 cudart/cublas，GPU 版自包含） |
-| `scripts\build_ui.bat` | `dist\LocalTranslateBubble.exe` + `_internal\` | PySide6 悬浮气泡界面（onedir，秒开） |
-| `scripts\package_zip.bat [版本号]` | `LocalTranslateBubble-vX.Y.Z-windows-x64.zip` | 发布 ZIP，**默认排除约 1.1GB GGUF 大模型**（用户首次运行自动下载），如需附带离线大模型请手动复制 `models\Hy-MT2-1.8B-GGUF\` 到压缩包内 |
+| `GET` | `/health` | 模型就绪状态与硬件信息（`device_info`） |
+| `POST` | `/v1/chat/completions` | OpenAI 兼容翻译（`stream=true` 支持 SSE） |
+| `POST` | `/api/v1/ocr` | RapidOCR 图像识别（multipart） |
+| `POST` | `/api/v1/ocr_translate` | OCR 识别 + 翻译 |
 
-发布目录结构（与 PopTrans 的 `dist-go` 同构）：
+## 📄 开源说明
 
-```text
-dist/
-├── LocalTranslateBubble.exe      # 悬浮气泡主程序（双击启动）
-├── _internal/                    # UI 运行时
-├── ai_engine.exe                 # 本地 AI 引擎
-├── icon.ico
-└── models/
-    ├── rapidocr/                 # OCR ONNX 模型（随包分发）
-    └── Hy-MT2-1.8B-GGUF/         # 翻译模型（首启自动下载或手动放入）
-```
+- 本项目基于 **MIT License** 开源（见 [LICENSE](LICENSE)）。
+- AI 引擎与交互设计整合自 [PopTrans](https://github.com/ifocus9/PopTrans)（MIT），感谢原作者；
+  PySide6 悬浮气泡壳与交互为本项目独立实现。
+- 模型：腾讯 [Hy-MT2-1.8B-GGUF](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF)（遵循官方许可）、RapidOCR（Apache-2.0）。
 
-打包态行为差异（已内置支持）：启动跳过 pip 引导；引擎优先拉起同级 `ai_engine.exe`；
-`settings.json` 生成在 exe 同级目录；`POPTRANS_OFFLINE=1` 环境变量可禁用联网下载。
-
-### 构建变体
-
-- **GPU 版（默认，随本机环境）**：安装 cu124 轮 + `nvidia-cuda-runtime-cu12`/`nvidia-cublas-cu12`（参考 README 上文依赖说明），`ai_engine.spec` 会自动把 cudart/cublas 收入 exe。
-- **CPU 版（普适发布）**：先卸载 CUDA 版 llama-cpp-python 再安装 CPU 版（`pip install llama-cpp-python --force-reinstall`，Python ≤3.12 有官方预编译轮），然后重新构建。
-
-## 开源说明
-
-- 本项目基于 **MIT License** 开源（见 `LICENSE`）。
-- 翻译引擎与交互设计整合自 [PopTrans](https://github.com/ifocus9/PopTrans)（MIT），感谢原作者；本项目的 PySide6 悬浮气泡壳与交互为独立实现。
-- 模型：腾讯 [Hy-MT2-1.8B](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF)（模型遵循其官方许可）、RapidOCR（Apache-2.0）。
-
+<div align="center"><sub>If this project helps you, a ⭐ would be appreciated.</sub></div>

@@ -1,6 +1,6 @@
 """Native Windows floating translator powered by the PopTrans local AI engine.
 
-苹果 Logo 气泡 + macOS 浅色翻译面板（PySide6 原生），翻译能力对齐 PopTrans：
+双语对话气泡 + macOS 浅色翻译面板（PySide6 原生），翻译能力对齐 PopTrans：
 - 本地 GGUF 推理引擎（backend/：FastAPI + llama-cpp-python + RapidOCR）以独立
   子进程运行，由 engine_supervisor 守护（健康轮询 / 空闲休眠 / 崩溃重启）；
 - 划词快捷翻译（模拟 Ctrl+C）+ 截图 OCR 翻译，气泡平滑飞至光标附近；
@@ -524,7 +524,7 @@ class SourceEdit(QTextEdit):
 
 
 class BubbleWindow(QWidget):
-    """苹果 Logo 悬浮气泡 — 亚像素浮动渲染管线（60~120 FPS 丝滑）。
+    """翻译对话悬浮气泡 — 亚像素浮动渲染管线（60~120 FPS 丝滑）。
 
     性能设计：
     - 非拖拽状态窗口几何保持静止，上下浮动与呼吸缩放完全通过 paintEvent
@@ -1036,7 +1036,7 @@ class NativeTranslator:
         self.settings.load()
         self.settings.changed.connect(self.on_settings_changed)
 
-        self.bubble = BubbleWindow(ASSET_DIR / "apple-logo.svg")
+        self.bubble = BubbleWindow(ASSET_DIR / "bubble-icon.svg")
         self.panel = PanelWindow()
         self.bubble.clicked.connect(self.toggle_panel)
         self.bubble.activate_requested.connect(self.open_panel)

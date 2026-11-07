@@ -27,7 +27,7 @@ a = Analysis(
     pathex=[str(ROOT)],
     binaries=binaries,
     datas=[
-        (str(ROOT / "apple-logo.svg"), "."),
+        (str(ROOT / "bubble-icon.svg"), "."),
         (str(ROOT / "retry.svg"), "."),
     ],
     hiddenimports=[],

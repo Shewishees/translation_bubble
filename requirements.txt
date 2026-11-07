@@ -1,4 +1,5 @@
-PySide6>=6.9,<7
+# 6.9.x 为当前验证线（6.10+ 的 QtCore 在部分 Windows 环境存在 DLL 兼容问题）
+PySide6>=6.9,<6.10
 fastapi>=0.104.0
 uvicorn>=0.23.2
 llama-cpp-python>=0.3.0

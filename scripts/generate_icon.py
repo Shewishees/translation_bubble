@@ -1,4 +1,4 @@
-"""一次性工具：从 apple-logo.svg 生成 assets/icon.ico（多尺寸）。"""
+"""一次性工具：从 bubble-icon.svg 生成 assets/icon.ico（多尺寸）。"""
 import os
 import sys
 from pathlib import Path
@@ -24,7 +24,7 @@ def render(size: int) -> Image.Image:
     path = QPainterPath()
     path.addRoundedRect(QRectF(1, 1, size - 2, size - 2), size * 0.22, size * 0.22)
     painter.fillPath(path, QColor(250, 250, 252, 255))
-    renderer = QSvgRenderer(str(ROOT / "apple-logo.svg"))
+    renderer = QSvgRenderer(str(ROOT / "bubble-icon.svg"))
     inset = size * 0.10
     renderer.render(painter, QRectF(inset, inset, size - 2 * inset, size - 2 * inset))
     painter.end()
