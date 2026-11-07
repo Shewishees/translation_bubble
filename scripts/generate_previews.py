@@ -39,12 +39,15 @@ def paste_with_shadow(canvas: Image.Image, item: Image.Image, xy: tuple, blur: i
 def main() -> int:
     app = QApplication.instance() or QApplication([])
 
-    # offscreen 平台不自动加载系统字体，显式注册微软雅黑保证中文渲染
+    # offscreen 平台不自动加载系统字体，显式注册微软雅黑保证中文渲染；
+    # 再注册符号/表情字体，让标题栏 📌 与 ⚙ 按钮在预览图中正确显示
     from PySide6.QtGui import QFont, QFontDatabase
 
-    windows_font = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "msyh.ttc"
-    if windows_font.exists():
-        QFontDatabase.addApplicationFont(str(windows_font))
+    fonts_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+    for name in ("msyh.ttc", "seguisym.ttf", "seguiemj.ttf"):
+        font_file = fonts_dir / name
+        if font_file.exists():
+            QFontDatabase.addApplicationFont(str(font_file))
     app.setFont(QFont("Microsoft YaHei UI", 10))
 
     out_dir = ROOT / "images"
@@ -75,6 +78,33 @@ def main() -> int:
     panel_img = qt_to_pil(panel.grab())
     panel_img.save(out_dir / "panel.png")
     print("panel.png", panel_img.size)
+
+    # ③ 偏好设置视图（快捷键录制胶囊）
+    from PySide6.QtGui import QFont
+
+    symbol_font = QFont("Segoe UI Symbol", 9)
+    panel.pin_button.setFont(symbol_font)
+    panel.gear_button.setFont(symbol_font)
+    panel.show_settings_view(True)
+    panel.set_hotkey_display("translate", "Alt+Q")
+    panel.set_hotkey_display("ocr", "Alt+W")
+    app.processEvents()
+    settings_img = qt_to_pil(panel.grab())
+    panel.show_settings_view(False)
+    settings_big = settings_img.resize(
+        (int(settings_img.width * 1.6), int(settings_img.height * 1.6)), Image.LANCZOS
+    )
+    scanvas = Image.new("RGBA", (settings_big.width + 120, settings_big.height + 120), (0, 0, 0, 0))
+    paste_with_shadow(scanvas, settings_big, (60, 50), blur=18, alpha=110)
+    # 铺一层与 hero 一致的浅色渐变底，避免透明区域转 RGB 后变黑
+    sgrad = Image.new("RGBA", scanvas.size)
+    sd = ImageDraw.Draw(sgrad)
+    for y in range(scanvas.height):
+        t = y / max(1, scanvas.height - 1)
+        sd.line([(0, y), (scanvas.width, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip((226, 232, 240), (245, 245, 247))) + (255,))
+    sgrad.alpha_composite(scanvas)
+    sgrad.convert("RGB").save(out_dir / "settings.png", quality=95)
+    print("settings.png", sgrad.size)
 
     # ③ 桌面场景合成图（hero）：面板 + 停靠气泡
     scale = 1.6

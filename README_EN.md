@@ -57,6 +57,8 @@ no cloud, no telemetry, your text never leaves the machine.
 | Screenshot OCR | `Alt+W` | Rounded full-screen selection, `Esc` to cancel |
 | Pin panel | Title-bar 📌 | While pinned, clicking outside won't auto-hide |
 | Preferences | Title-bar ⚙ / right-click bubble | Record custom global hotkeys |
+
+<p align="center"><img src="images/settings.png" width="420" alt="Preferences view: hotkey recorder pills"></p>
 | Translate now | `Ctrl+Enter` | Skips the 600 ms debounce |
 | Switch direction | Pill next to the title | Auto (zh↔en) → zh→en → en→zh |
 | Quit | Right-click the bubble | Open panel / capture / screenshot / quit |
