@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 运行时产物（本机生成，不入库）
+.runtime/
+cache/
+models/
+settings.json
+translate.log
+startup-error.log
+*.log
+
+# 打包产物
+build/
+dist/
+dist-ui/
+dist-stage/
+*.zip
+
+# 本机参考克隆 / 工具目录
+.reference/
+.zcode/
+.cache/
+.pyinstaller/
+.build-venv/
+
+# IDE / 系统
+.vscode/
+.idea/
+Thumbs.db

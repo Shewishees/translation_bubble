@@ -1,0 +1,289 @@
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
+
+import app as ui
+from hotkey_manager import (
+    MOD_ALT,
+    MOD_CONTROL,
+    MOD_SHIFT,
+    parse_hotkey,
+)
+from settings_manager import DEFAULTS, SettingsManager
+
+
+class MockPropertyMock:
+    """instance 属性访问代理到类级 callable（用于 mock property）。"""
+
+    def __init__(self, return_value=None):
+        self._return_value = return_value
+
+    def __call__(self, _instance=None):
+        return self._return_value
+
+
+class SettingsManagerTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_defaults_when_file_missing(self):
+        manager = SettingsManager(self.root)
+        snapshot = manager.load()
+        self.assertEqual(snapshot["server_port"], DEFAULTS["server_port"])
+        self.assertEqual(snapshot["acceleration_device"], "auto")
+        self.assertEqual(snapshot["hotkey"], "<ctrl>+<alt>+q")
+        self.assertEqual(snapshot["ai_idle_minutes"], DEFAULTS["ai_idle_minutes"])
+        self.assertFalse(snapshot["ocr_enabled"])
+
+    def test_save_writes_poptrans_compatible_fields(self):
+        manager = SettingsManager(self.root)
+        manager.load()
+        manager.save({"server_port": 9999, "launch_at_login": True})
+        data = json.loads((self.root / "settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(data["server_port"], 9999)
+        self.assertTrue(data["launch_at_login"])
+        self.assertIn("acceleration_device", data)
+        self.assertIn("hotkey_display", data)
+
+    def test_invalid_values_fall_back_to_defaults(self):
+        (self.root / "settings.json").write_text(
+            json.dumps(
+                {
+                    "server_port": 80,
+                    "acceleration_device": "tpu",
+                    "ai_idle_minutes": -3,
+                    "theme": "solarized",
+                }
+            ),
+            encoding="utf-8",
+        )
+        manager = SettingsManager(self.root)
+        snapshot = manager.load()
+        self.assertEqual(snapshot["server_port"], DEFAULTS["server_port"])
+        self.assertEqual(snapshot["acceleration_device"], "auto")
+        self.assertEqual(snapshot["ai_idle_minutes"], DEFAULTS["ai_idle_minutes"])
+        self.assertEqual(snapshot["theme"], "system")
+
+    def test_external_change_emits_diff(self):
+        manager = SettingsManager(self.root)
+        manager.load()
+        events: list[dict] = []
+        manager.changed.connect(events.append)
+        payload = dict(DEFAULTS)
+        payload["acceleration_device"] = "gpu"
+        manager._suppress_reload = False
+        (self.root / "settings.json").write_text(json.dumps(payload), encoding="utf-8")
+        # QFileSystemWatcher 依赖事件循环；直接调用内部槽验证行为
+        manager._on_file_changed(str(self.root / "settings.json"))
+        self.assertEqual(events and events[-1].get("acceleration_device"), "gpu")
+
+    def test_file_creation_triggers_reload(self):
+        # 首次运行时 settings.json 不存在；外部新建文件也必须触发热加载
+        manager = SettingsManager(self.root)
+        manager.load()
+        events: list[dict] = []
+        manager.changed.connect(events.append)
+        payload = dict(DEFAULTS)
+        payload["ai_idle_minutes"] = 7
+        (self.root / "settings.json").write_text(json.dumps(payload), encoding="utf-8")
+        manager._on_directory_changed(str(self.root))
+        self.assertEqual(events and events[-1].get("ai_idle_minutes"), 7)
+
+
+class HotkeyParseTests(unittest.TestCase):
+    def test_poptrans_expression_formats(self):
+        self.assertEqual(parse_hotkey("<ctrl>+<alt>+q"), (MOD_CONTROL | MOD_ALT, ord("Q")))
+        self.assertEqual(parse_hotkey("ctrl+alt+e"), (MOD_CONTROL | MOD_ALT, ord("E")))
+        self.assertEqual(parse_hotkey("<ctrl>+<shift>+f12"), (MOD_CONTROL | MOD_SHIFT, 0x70 + 12 - 1))
+
+    def test_invalid_expressions_return_none(self):
+        self.assertIsNone(parse_hotkey("q"))            # 缺少修饰键
+        self.assertIsNone(parse_hotkey("ctrl+"))        # 缺少主键
+        self.assertIsNone(parse_hotkey("ctrl+pause"))   # 不支持的主键
+
+
+class EngineStatusMappingTests(unittest.TestCase):
+    def test_status_mapping_is_friendly(self):
+        cases = {
+            "正在加载翻译模型...": "正在唤醒本地 GGUF 模型…",
+            "翻译引擎就绪 (GPU 加速)": "GPU 加速已就绪",
+            "翻译引擎就绪 (CPU)": "CPU 模式已就绪",
+            "翻译引擎就绪 (CPU 降级)": "GPU 加载失败，已自动切换 CPU 模式",
+            "首次使用需下载 Hy-MT2 模型（约 1.13GB）...": "首次使用，正在下载 Hy-MT2 翻译模型（约 1.13GB）…",
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(ui._friendly_engine_status(raw), expected)
+
+    def test_init_failure_maps_to_friendly_error(self):
+        self.assertEqual(
+            ui._friendly_engine_status("翻译引擎初始化失败: something"),
+            ui.FRIENDLY_ERROR,
+        )
+
+
+class MultipartBodyTests(unittest.TestCase):
+    def test_body_contains_file_and_optional_lang(self):
+        body, content_type = ui._multipart_body(b"PNGDATA", "en")
+        self.assertIn(b'name="file"', body)
+        self.assertIn(b"PNGDATA", body)
+        self.assertIn(b'target_lang"', body)
+        self.assertIn(b"en", body)
+        self.assertTrue(content_type.startswith("multipart/form-data; boundary="))
+
+        body_no_lang, _ = ui._multipart_body(b"PNGDATA", None)
+        self.assertNotIn(b"target_lang", body_no_lang)
+
+
+class NativeUiTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.qt_app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        with patch.object(ui.NativeTranslator, "start_bootstrap", lambda _self: None), \
+                patch.object(ui, "cleanup_legacy_autostart", lambda: None), \
+                patch.object(ui, "set_autostart", lambda _enabled: None), \
+                patch.object(ui, "is_autostart_enabled", lambda: False):
+            self.controller = ui.NativeTranslator(self.qt_app)
+
+    def tearDown(self):
+        self.controller.hotkeys.unregister_all()
+        self.controller.panel.close()
+        self.controller.bubble.close()
+        QTest.qWait(250)
+
+    def test_split_card_retry_and_friendly_error(self):
+        panel = self.controller.panel
+        self.assertEqual(panel.source.height(), 110)
+        self.assertEqual(panel.output.height(), 90)
+        self.assertIs(panel.retry.parent(), panel.status_row)
+        self.assertTrue(panel.translation_view.isReadOnly())
+
+        panel.set_status("raw command error", error=True)
+        self.assertEqual(panel.status_label.text(), ui.FRIENDLY_ERROR)
+        self.assertIn("#D9534F", panel.status_label.styleSheet())
+        self.assertFalse(panel.retry.isHidden())
+
+    def test_streaming_append_and_clear(self):
+        panel = self.controller.panel
+        panel.begin_translation_stream()
+        panel.set_status("翻译中…")
+        panel.append_translation_chunk("你好")
+        panel.append_translation_chunk("，世界")
+        self.assertEqual(panel.translation_view.toPlainText(), "你好，世界")
+
+    def test_visual_requirements_remain_in_place(self):
+        controller = self.controller
+        panel = controller.panel
+        stylesheet = panel.styleSheet()
+        for rule in (
+            "rgba(245,245,247,242)",
+            "#FFFFFF; border: 1px solid #EAEAEA; border-radius: 12px",
+            "padding: 14px",
+            "Microsoft YaHei UI",
+        ):
+            self.assertIn(rule, stylesheet)
+        self.assertEqual(panel.hint.text(), "Ctrl+Enter 立即翻译")
+        self.assertIsInstance(panel.autostart, ui.PreciseCheckBox)
+        # 高刷动画驱动：8ms 精确定时器（≈120 FPS）
+        self.assertEqual(controller.bubble._anim_timer.interval(), ui.BubbleWindow.TICK_MS)
+        self.assertEqual(controller.bubble._anim_timer.timerType(), Qt.TimerType.PreciseTimer)
+        # 预渲染缓存：Logo/圆底/光晕在初始化时合成，paintEvent 仅贴图
+        self.assertTrue(controller.bubble._base_pix.width() > 0)
+        self.assertTrue(controller.bubble._halo_pix.width() > 0)
+        self.assertEqual(controller.bubble.windowTitle(), "本地翻译悬浮球")
+
+        panel.set_translation("Hello")
+        self.assertEqual(panel.translation_view.toPlainText(), "Hello")
+        self.assertTrue(panel.translation_view.textInteractionFlags())
+
+        checkbox = ui.PreciseCheckBox("开机自启")
+        checkbox.resize(130, 24)
+        checkbox.setChecked(True)
+        checkbox.show()
+        self.qt_app.processEvents()
+        checkbox_image = checkbox.grab().toImage()
+        self.assertEqual(checkbox_image.pixelColor(14, 12).name(), "#333336")
+        checkbox.close()
+
+        image = controller.bubble.grab().toImage()
+        self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+
+    def test_direction_pill_cycles_three_states(self):
+        panel = self.controller.panel
+        self.assertEqual(panel.language.text(), "自动")
+        controller = self.controller
+        controller.on_direction_changed()
+        self.assertEqual(panel.language.text(), "中 → 英")
+        self.assertEqual(controller._target_lang(), "en")
+        controller.on_direction_changed()
+        self.assertEqual(panel.language.text(), "英 → 中")
+        self.assertEqual(controller._target_lang(), "zh")
+        controller.on_direction_changed()
+        self.assertEqual(panel.language.text(), "自动")
+        self.assertIsNone(controller._target_lang())
+
+    def test_bubble_docks_outside_panel_and_returns(self):
+        controller = self.controller
+        margin = ui.BubbleWindow.MARGIN
+        controller.toggle_panel()
+        QTest.qWait(260)
+        # 视觉边缘停靠在面板右侧外部 16px（窗口含透明边距，需补偿）
+        self.assertEqual(
+            controller.bubble.x(),
+            controller.panel.x() + controller.panel.width() + 16 - margin,
+        )
+        visual = controller.bubble.geometry().adjusted(margin, margin, -margin, -margin)
+        self.assertFalse(controller.panel.frameGeometry().intersects(visual))
+        controller.hide_panel()
+        QTest.qWait(260)
+        self.assertFalse(controller.panel.isVisible())
+        self.assertEqual(controller.bubble.pos(), controller.bubble_home)
+
+    def test_bubble_flies_to_cursor_on_capture(self):
+        controller = self.controller
+        controller._capture_cursor = QPoint(300, 300)
+        controller.on_captured("hello world")
+        self.assertEqual(controller.pending_source, "hello world")
+        target = controller._bubble_target_for_cursor(QPoint(300, 300))
+        QTest.qWait(300)
+        self.assertEqual(controller.bubble.pos(), target)
+        # 点击气泡展开面板后，划词内容自动填入并立即翻译
+        with patch.object(controller, "start_translation", lambda _self: None):
+            controller.open_panel()
+            QTest.qWait(50)
+        self.assertEqual(controller.panel.source.toPlainText(), "hello world")
+        self.assertIsNone(controller.pending_source)
+
+    def test_settings_hot_reload_restarts_engine(self):
+        controller = self.controller
+        controller.env_ready = True
+        with patch.object(
+            ui.EngineSupervisor, "is_running", new_callable=MockPropertyMock, return_value=True
+        ), patch.object(controller.supervisor, "restart") as restart:
+            controller.on_settings_changed({"acceleration_device": "gpu"})
+            restart.assert_called_once()
+            controller.on_settings_changed({"hotkey": "<ctrl>+<alt>+t"})
+            restart.assert_called_once()  # 快捷键变更不触发引擎重启
+
+
+if __name__ == "__main__":
+    unittest.main()
