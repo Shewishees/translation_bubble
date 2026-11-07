@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from PySide6.QtWidgets import QApplication
 
-from app import BubbleWindow, PanelWindow
+from bubble.app import BubbleWindow, PanelWindow
 
 
 def qt_to_pil(pixmap) -> Image.Image:
@@ -54,7 +54,7 @@ def main() -> int:
     out_dir.mkdir(exist_ok=True)
 
     # ① 悬浮气泡（新图标）
-    bubble = BubbleWindow(ROOT / "bubble-icon.svg")
+    bubble = BubbleWindow(ROOT / "assets" / "bubble-icon.svg")
     bubble.show()
     app.processEvents()
     bubble_img = qt_to_pil(bubble.grab())

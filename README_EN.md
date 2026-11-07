@@ -74,6 +74,35 @@ start.bat                        :: launch (missing models are auto-downloaded)
 Development dependency: Python 3.12+ recommended; for GPU acceleration install the matching
 `llama-cpp-python` build (see build variants below).
 
+## 📁 Project layout
+
+```text
+translation_bubble/
+├── bubble/                     # PySide6 floating-bubble application (UI package)
+│   ├── launcher.py             # entry point: starts the app, captures startup errors
+│   ├── app.py                  # bubble window / translation panel / controller
+│   ├── engine_supervisor.py    # engine daemon (health polling / idle sleep / sweep)
+│   ├── settings_manager.py     # settings.json (PopTrans schema + hot reload)
+│   ├── hotkey_manager.py       # global hotkeys (RegisterHotKey + native filter)
+│   ├── text_capture.py         # selection capture (simulated Ctrl+C + clipboard restore)
+│   ├── screen_capture.py       # screenshot selection overlay
+│   ├── bootstrap_backend.py    # first run: dependency install / OCR model placement
+│   ├── nvidia_runtime.py       # CUDA runtime DLL path injection
+│   └── diagnostics.py          # diagnostics log (no input text recorded)
+├── backend/                    # AI engine service (ported from PopTrans)
+│   ├── api_server.py           # FastAPI: /health, /v1/chat/completions, OCR
+│   ├── translator.py           # llama.cpp wrapper (auto/gpu/cpu + safe fallback)
+│   ├── ocr_service.py          # RapidOCR wrapper (scale retries + line merging)
+│   ├── server_config.py        # TRANSLATE_SERVER_PORT parsing
+│   ├── runtime_paths.py        # source/frozen dual-mode paths
+│   └── ai_engine.spec          # engine PyInstaller spec
+├── scripts/                    # build / package / preview scripts (bat + py)
+├── tests/                      # unit tests (23)
+├── assets/                     # icons and SVG assets
+├── images/                     # README previews
+└── LocalTranslateBubble.spec   # UI PyInstaller spec
+```
+
 ## 📦 Building a release / CI
 
 Build a portable release (bundled Python runtime, outputs `dist\`):

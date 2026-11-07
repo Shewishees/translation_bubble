@@ -17,8 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from diagnostics import record_diagnostic
-from nvidia_runtime import NVIDIA_RUNTIME_PACKAGES, subprocess_env
+from .diagnostics import record_diagnostic
+from .nvidia_runtime import NVIDIA_RUNTIME_PACKAGES, subprocess_env
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -26,7 +26,8 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
 
-ROOT = Path(__file__).resolve().parent
+# 以 `python -m bubble.bootstrap_backend` 运行；ROOT = 仓库/发布根目录
+ROOT = Path(__file__).resolve().parent.parent
 MARKER = ROOT / ".runtime" / "python-ready.json"
 
 CUDA_WHEEL_INDEX = "https://abetlen.github.io/llama-cpp-python/whl/cu124"

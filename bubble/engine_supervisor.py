@@ -24,7 +24,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from nvidia_runtime import subprocess_env
+from .nvidia_runtime import subprocess_env
 
 CREATE_NO_WINDOW = 0x08000000
 STARTUP_READY_TIMEOUT = 30 * 60          # 首次运行可能需要下载约 1.13GB 模型

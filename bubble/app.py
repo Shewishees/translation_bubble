@@ -71,23 +71,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from diagnostics import record_diagnostic
-from engine_supervisor import EngineSupervisor
-from hotkey_manager import HotkeyManager
-from screen_capture import ScreenCaptureOverlay
-from settings_manager import SettingsManager, hotkey_display_from_expression
-from text_capture import capture_selected_text
+from .diagnostics import record_diagnostic
+from .engine_supervisor import EngineSupervisor
+from .hotkey_manager import HotkeyManager
+from .screen_capture import ScreenCaptureOverlay
+from .settings_manager import SettingsManager, hotkey_display_from_expression
+from .text_capture import capture_selected_text
 
 
 if getattr(sys, "frozen", False):
     # PyInstaller 打包态：ROOT = exe 所在目录（settings/models/ai_engine.exe 同级），
-    # ASSET_DIR = 打包资源目录（svg 图标等 datas）
+    # ASSET_DIR = 打包资源目录（svg 图标等 datas，spec 收集到 _MEIPASS/assets）
     ROOT = Path(sys.executable).resolve().parent
-    ASSET_DIR = Path(getattr(sys, "_MEIPASS", ROOT))
+    ASSET_DIR = Path(getattr(sys, "_MEIPASS", ROOT)) / "assets"
 else:
-    ROOT = Path(__file__).resolve().parent
-    ASSET_DIR = ROOT
-BOOTSTRAP = ROOT / "bootstrap_backend.py"
+    ROOT = Path(__file__).resolve().parent.parent
+    ASSET_DIR = ROOT / "assets"
+BOOTSTRAP_MODULE = "bubble.bootstrap_backend"
 MUTEX_NAME = "LocalTranslateBubble.Native.SingleInstance"
 ACTIVATE_MESSAGE = 0x8000 + 0x51
 FRIENDLY_ERROR = "⚠️ 本地翻译引擎未就绪，请点击右侧重试"
@@ -252,7 +252,7 @@ class BootstrapThread(QThread):
             python = Path(sys.executable)
             if python.name.lower() == "pythonw.exe":
                 python = python.with_name("python.exe")
-            command = [str(python), str(BOOTSTRAP)]
+            command = [str(python), "-m", BOOTSTRAP_MODULE]
             self.process = subprocess.Popen(
                 command,
                 cwd=str(ROOT),

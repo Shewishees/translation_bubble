@@ -24,7 +24,7 @@ def render(size: int) -> Image.Image:
     path = QPainterPath()
     path.addRoundedRect(QRectF(1, 1, size - 2, size - 2), size * 0.22, size * 0.22)
     painter.fillPath(path, QColor(250, 250, 252, 255))
-    renderer = QSvgRenderer(str(ROOT / "bubble-icon.svg"))
+    renderer = QSvgRenderer(str(ROOT / "assets" / "bubble-icon.svg"))
     inset = size * 0.10
     renderer.render(painter, QRectF(inset, inset, size - 2 * inset, size - 2 * inset))
     painter.end()

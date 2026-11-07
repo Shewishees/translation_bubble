@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import ctypes
+import sys
 import traceback
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    ROOT = Path(sys.executable).resolve().parent
+else:
+    ROOT = Path(__file__).resolve().parent.parent
 ERROR_LOG = ROOT / "startup-error.log"
 
 
@@ -34,7 +38,7 @@ def report_startup_error(error: Exception) -> None:
 
 def main() -> int:
     try:
-        from app import main as run_app
+        from bubble.app import main as run_app
 
         return run_app()
     except Exception as error:

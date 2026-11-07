@@ -17,14 +17,14 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-import app as ui
-from hotkey_manager import (
+from bubble import app as ui
+from bubble.hotkey_manager import (
     MOD_ALT,
     MOD_CONTROL,
     MOD_SHIFT,
     parse_hotkey,
 )
-from settings_manager import DEFAULTS, SettingsManager
+from bubble.settings_manager import DEFAULTS, SettingsManager
 
 
 class MockPropertyMock:

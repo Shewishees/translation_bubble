@@ -72,6 +72,35 @@ start.bat                        :: 启动（需 PySide6；模型缺失时引擎
 
 开发依赖：Python 3.12+（推荐）；GPU 加速请参考下文构建变体安装对应 `llama-cpp-python`。
 
+## 📁 项目结构
+
+```text
+translation_bubble/
+├── bubble/                     # PySide6 悬浮气泡应用（UI 包）
+│   ├── launcher.py             # 入口：启动应用并捕获启动异常
+│   ├── app.py                  # 气泡窗口 / 翻译面板 / 总控制器
+│   ├── engine_supervisor.py    # AI 引擎守护（健康轮询 / 空闲休眠 / 残留清扫）
+│   ├── settings_manager.py     # settings.json（PopTrans 规范 + 热加载）
+│   ├── hotkey_manager.py       # 全局热键（RegisterHotKey + 原生事件过滤）
+│   ├── text_capture.py         # 划词取词（模拟 Ctrl+C + 剪贴板还原）
+│   ├── screen_capture.py       # 截图框选覆盖层
+│   ├── bootstrap_backend.py    # 首次运行：依赖安装 / OCR 模型落位
+│   ├── nvidia_runtime.py       # CUDA 运行时 DLL 路径注入
+│   └── diagnostics.py          # 诊断日志（不记录输入文本）
+├── backend/                    # AI 引擎服务（移植自 PopTrans）
+│   ├── api_server.py           # FastAPI：/health、/v1/chat/completions、OCR
+│   ├── translator.py           # llama.cpp 翻译封装（auto/gpu/cpu + 安全降级）
+│   ├── ocr_service.py          # RapidOCR 封装（多倍率回退 + 行合并）
+│   ├── server_config.py        # TRANSLATE_SERVER_PORT 解析
+│   ├── runtime_paths.py        # 源码/打包双模式路径
+│   └── ai_engine.spec          # 引擎 PyInstaller 打包配置
+├── scripts/                    # 构建 / 打包 / 预览图脚本（bat + py）
+├── tests/                      # 单元测试（23 项）
+├── assets/                     # 图标与 SVG 素材
+├── images/                     # README 预览图
+└── LocalTranslateBubble.spec   # UI PyInstaller 打包配置
+```
+
 ## 📦 构建发行版 / 自动构建
 
 一键打包为免安装软件（内置 Python 运行时，产出 `dist\`）：

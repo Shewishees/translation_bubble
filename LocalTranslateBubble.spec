@@ -23,12 +23,12 @@ if _conda_bin.is_dir():
             binaries.append((str(_p), "."))
 
 a = Analysis(
-    [str(ROOT / "launcher.py")],
+    [str(ROOT / "bubble" / "launcher.py")],
     pathex=[str(ROOT)],
     binaries=binaries,
     datas=[
-        (str(ROOT / "bubble-icon.svg"), "."),
-        (str(ROOT / "retry.svg"), "."),
+        (str(ROOT / "assets" / "bubble-icon.svg"), "assets"),
+        (str(ROOT / "assets" / "retry.svg"), "assets"),
     ],
     hiddenimports=[],
     hookspath=[],
