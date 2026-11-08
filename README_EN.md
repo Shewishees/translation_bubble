@@ -37,7 +37,7 @@ no cloud, no telemetry, your text never leaves the machine.
 - **⌨️ Visual hotkey recorder**: the ⚙ button in the title bar opens a preferences view — click a pill, press the new combo (Esc cancels, Backspace disables), applied instantly with conflict detection (soft red hint).
 - **⚡ Streaming output**: OpenAI-compatible `/v1/chat/completions` (SSE); 256-entry LRU cache returns repeated text instantly.
 - **🎮 Auto GPU acceleration with safe fallback**: `acceleration_device = auto/gpu/cpu`; full offload via CUDA/Vulkan (3–5× faster on an RTX 5070), automatic fallback to CPU on any failure.
-- **🛌 AI idle recycling**: the engine sleeps after 15 idle minutes to free VRAM, and wakes automatically on the next translation.
+- **🛌 AI idle recycling / resident model**: sleeps after 15 idle minutes by default; enable "模型常驻" in the ⚙ panel to keep the model resident in VRAM (~1.5 GB) for zero-wait translations — the engine is even adopted back after app restarts.
 - **⚙️ settings.json hot reload**: field-compatible with PopTrans; edits apply instantly without restarting.
 
 ## 🚀 Getting started
@@ -135,7 +135,7 @@ same scripts on a machine without `nvidia-smi` to get the universal CPU build.
 | `ocr_enabled` / `ocr_hotkey` / `ocr_hotkey_display` | `true` / `<alt>+w` / `Alt+W` | Screenshot OCR translation |
 | `server_port` | `8989` | Local engine port (1024–65535; changing it restarts the engine) |
 | `acceleration_device` | `auto` | Inference device: auto / gpu / cpu |
-| `ai_idle_minutes` | `15` | Idle minutes before the engine sleeps (0 = never) |
+| `ai_idle_minutes` | `15` | Idle minutes before the engine sleeps; **`0` = model stays resident in VRAM, zero-wait translations** (~1.5 GB VRAM + ~1 GB RAM, near-zero idle CPU; toggle "模型常驻" in the ⚙ panel) |
 | `launch_at_login` | `false` | Launch at login (HKCU Run key, synced with the panel checkbox) |
 | `logging_enabled` | `false` | Write engine logs to `translate.log` |
 

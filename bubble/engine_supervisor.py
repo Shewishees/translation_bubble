@@ -75,6 +75,8 @@ class EngineSupervisor(QObject):
         self._shutdown_thread: Optional[threading.Thread] = None
         self._stopping = False
         self._spawning = False
+        self._owned = True          # 当前引擎是否为本进程拉起（可 taskkill 结束）
+        self._adopted = False       # 是否处于"领养常驻引擎"模式
         self._ready = False
         self._device_info: dict = {}
         self._last_activity = time.time()
@@ -130,6 +132,34 @@ class EngineSupervisor(QObject):
                     return
                 if self._proc is not None and self._proc.poll() is None:
                     return
+            # 领养：端口上已有健康引擎（常驻遗留 / 上次未随 UI 退出），
+            # 直接挂载监视而不重新拉起，模型保持已加载状态，零等待
+            try:
+                base = f"http://127.0.0.1:{int(self._port_provider())}"
+                health = fetch_health(base, timeout=3)
+            except Exception:
+                health = None
+            if health is not None and health.get("status") == "ok":
+                ready = bool(health.get("translator_ready"))
+                device = health.get("device_info") or {}
+                status_text = str(health.get("translator_status") or "")
+                with self._lock:
+                    self._owned = False
+                    self._adopted = True
+                    self._ready = ready
+                    self._device_info = dict(device)
+                    self._last_activity = time.time()
+                if status_text:
+                    self.status_changed.emit(status_text)
+                self.ready_changed.emit(ready, dict(device))
+                if self._poll_thread is None or not self._poll_thread.is_alive():
+                    self._poll_thread = threading.Thread(
+                        target=self._poll_loop, args=[None, not ready], daemon=True
+                    )
+                    self._poll_thread.start()
+                self._ensure_idle_timer()
+                return
+            with self._lock:
                 self._sweep_leftover_engines()
                 self._spawn_locked()
         finally:
@@ -184,6 +214,7 @@ class EngineSupervisor(QObject):
         self._ready = False
         self._device_info = {}
         self._stopping = False
+        self._adopted = False
         self._last_activity = time.time()
         if self._poll_thread is None or not self._poll_thread.is_alive():
             self._poll_thread = threading.Thread(
@@ -203,15 +234,20 @@ class EngineSupervisor(QObject):
         else:
             self._idle_timer.stop()
 
-    def _poll_loop(self, proc: subprocess.Popen) -> None:
-        """健康轮询：等待就绪（最多 30 分钟），之后转为轻量存活监测。"""
+    def _poll_loop(self, proc: Optional[subprocess.Popen], waiting_start: bool = True) -> None:
+        """健康轮询：等待就绪（最多 30 分钟），之后转为轻量存活监测。
+
+        proc 为 None 表示领养模式（引擎常驻、非本进程子进程）：
+        无法用 poll() 探活，改用连续健康检查失败计数判定引擎死亡。
+        """
         base = f"http://127.0.0.1:{int(self._port_provider())}"
         deadline = time.time() + STARTUP_READY_TIMEOUT
-        waiting = True
+        waiting = waiting_start
         last_status = ""
+        adopt_failures = 0
 
         while not self._stopping:
-            if proc.poll() is not None:
+            if proc is not None and proc.poll() is not None:
                 with self._lock:
                     self._proc = None
                     self._ready = False
@@ -227,6 +263,19 @@ class EngineSupervisor(QObject):
                 health = fetch_health(base)
             except Exception:
                 health = None
+
+            if proc is None:
+                # 领养模式：连续多次健康检查失败视为常驻引擎已死亡
+                if health is None:
+                    adopt_failures += 1
+                    if adopt_failures >= 10:
+                        with self._lock:
+                            self._ready = False
+                            self._adopted = False
+                        self.process_died.emit()
+                        return
+                else:
+                    adopt_failures = 0
 
             if health is not None and health.get("status") == "ok":
                 status_text = str(health.get("translator_status") or "")
@@ -301,6 +350,13 @@ class EngineSupervisor(QObject):
 
     def _shutdown_worker(self, proc, permanent: bool) -> None:
         self._terminate_process_tree(proc)
+        if proc is None:
+            # proc 为空说明此前处于"领养常驻引擎"模式：
+            # taskkill 无从下手，改按端口+命令行清扫结束它
+            try:
+                self._sweep_leftover_engines()
+            except Exception:
+                pass
         self._close_log()
         if permanent:
             try:
@@ -310,6 +366,21 @@ class EngineSupervisor(QObject):
         else:
             with self._lock:
                 self._stopping = False
+
+    def detach_resident(self) -> bool:
+        """模型常驻：应用退出时解除接管，引擎留在后台继续运行（模型保持已加载）。
+
+        返回 True 表示确实有引擎被留驻；False 表示当前没有引擎。
+        """
+        with self._lock:
+            alive = (self._proc is not None and self._proc.poll() is None) or self._adopted
+            self._proc = None
+            self._owned = False
+            self._adopted = False
+            self._stopping = False
+        self._idle_timer_command.emit(False)
+        self._close_log()
+        return alive
 
     def join_shutdown(self, timeout: float = 3.0) -> None:
         """等待后台终止/清扫完成（应用退出路径使用，防止孤儿引擎）。"""

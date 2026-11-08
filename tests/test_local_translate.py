@@ -376,33 +376,20 @@ class NativeUiTests(unittest.TestCase):
 
     def test_hotkey_reconfigure_supports_empty_disable(self):
         manager = ui.HotkeyManager()
-        result = manager.reconfigure("", "", "", True)
+        result = manager.reconfigure(None, "", "", "", True)
         self.assertTrue(result["translate"])
         self.assertTrue(result["show"])
         self.assertEqual(manager._bindings, {})
         manager.unregister_all()
 
-    def test_native_filter_matches_hotkey_message(self):
-        # 回归：PySide6 的 eventType 是 windows_generic_MSG（MSG 大写），
-        # 过滤器必须大小写不敏感匹配，否则全局热键永远不触发
-        import ctypes
-
-        from PySide6.QtCore import QByteArray
-
+    def test_action_for_hotkey_id_mapping(self):
+        # 回归：WM_HOTKEY 投递到气泡窗口后，必须能映射回对应动作
+        # （历史缺陷：依赖的 QAbstractNativeEventFilter 在 PySide6 6.10+
+        #   完全不被调用，导致全局热键永远无法生效）
         manager = ui.HotkeyManager()
-        manager.reconfigure("<ctrl>+<alt>+f12", "", "", False)
-        triggered = []
-        manager.triggered.connect(triggered.append)
-
-        msg = HotkeyMessage()
-        msg.message = 0x0312          # WM_HOTKEY
-        msg.wParam = 1                # HOTKEY_ID_TRANSLATE
-        handled, _ = manager.nativeEventFilter(
-            QByteArray(b"windows_generic_MSG"),
-            ctypes.addressof(msg),
-        )
-        self.assertTrue(handled)
-        self.assertEqual(triggered, ["translate"])
+        manager.reconfigure(None, "<ctrl>+<alt>+f12", "", "", False)
+        self.assertEqual(manager.action_for_hotkey_id(1), "translate")
+        self.assertIsNone(manager.action_for_hotkey_id(99))
         manager.unregister_all()
 
     def test_sendinput_structure_layout(self):
@@ -424,6 +411,39 @@ class NativeUiTests(unittest.TestCase):
             restart.assert_called_once()
             controller.on_settings_changed({"hotkey": "<ctrl>+<alt>+t"})
             restart.assert_called_once()  # 快捷键变更不触发引擎重启
+
+    def test_resident_checkbox_toggles_ai_idle_minutes(self):
+        controller = self.controller
+        saved = {}
+
+        def fake_save(updates):
+            saved.update(updates)
+            return controller.settings.snapshot()
+
+        with patch.object(controller.settings, "save", side_effect=fake_save):
+            controller.on_resident_toggled(True)
+            self.assertEqual(saved.get("ai_idle_minutes"), 0)
+            controller.on_resident_toggled(False)
+            self.assertEqual(saved.get("ai_idle_minutes"), 15)
+
+    def test_resident_settings_changed_syncs_checkbox(self):
+        controller = self.controller
+        controller.on_settings_changed({"ai_idle_minutes": 0})
+        self.assertTrue(controller.panel.resident_checkbox.isChecked())
+        controller.on_settings_changed({"ai_idle_minutes": 15})
+        self.assertFalse(controller.panel.resident_checkbox.isChecked())
+
+    def test_engine_supervisor_detach_resident(self):
+        supervisor = self.controller.supervisor
+        with patch.object(supervisor, "_sweep_leftover_engines"):
+            # When supervisor is not running
+            self.assertFalse(supervisor.detach_resident())
+
+            # When supervisor is adopted
+            supervisor._adopted = True
+            self.assertTrue(supervisor.detach_resident())
+            self.assertFalse(supervisor._adopted)
+
 
 
 if __name__ == "__main__":

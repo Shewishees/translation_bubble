@@ -36,7 +36,7 @@
 - **⌨️ 快捷键可视化录制**：面板标题栏 ⚙ 打开偏好设置视图，点击胶囊按下新组合即可换键（Esc 取消、Backspace 停用），即时生效并检测冲突（浅红提示）。
 - **⚡ 流式输出**：OpenAI 兼容 `/v1/chat/completions`（SSE），译文逐字呈现；LRU 缓存 256 条，重复文本秒回。
 - **🎮 GPU 自动加速与安全降级**：`acceleration_device = auto/gpu/cpu`，优先 CUDA/Vulkan 全量卸载（实测 RTX 5070 提速 3~5 倍），失败自动回退 CPU。
-- **🛌 AI 空闲回收**：15 分钟无请求自动休眠释放显存，下次翻译毫秒级自动唤醒。
+- **🛌 AI 空闲回收 / 模型常驻**：默认 15 分钟无请求自动休眠释放显存；勾选面板 ⚙ 里的"模型常驻"后模型常驻显存（约 1.5GB）、翻译零等待，且程序重启时自动领养仍在运行的引擎。
 - **⚙️ settings.json 热加载**：与 PopTrans 字段规范完全一致，保存即生效，无需重启。
 
 ## 🚀 快速开始
@@ -133,7 +133,7 @@ PopTrans 指南安装 CPU 轮 `llama-cpp-python`）。
 | `ocr_enabled` / `ocr_hotkey` / `ocr_hotkey_display` | `true` / `<alt>+w` / `Alt+W` | 截图 OCR 翻译 |
 | `server_port` | `8989` | 本地引擎端口（1024–65535，改动自动重启引擎） |
 | `acceleration_device` | `auto` | 推理设备：auto / gpu / cpu |
-| `ai_idle_minutes` | `15` | 引擎空闲多久自动休眠（0 = 永不） |
+| `ai_idle_minutes` | `15` | 引擎空闲多久自动休眠；**设为 `0` = 模型常驻显存、翻译零等待**（占用约 1.5GB 显存 + 约 1GB 内存，待机 CPU≈0；面板 ⚙ 里有"模型常驻"开关） |
 | `launch_at_login` | `false` | 开机自启（HKCU Run 注册表键，面板复选框同步） |
 | `logging_enabled` | `false` | 引擎日志落盘 `translate.log` |
 

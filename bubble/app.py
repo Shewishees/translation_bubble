@@ -73,7 +73,7 @@ from PySide6.QtWidgets import (
 
 from .diagnostics import record_diagnostic
 from .engine_supervisor import EngineSupervisor
-from .hotkey_manager import HotkeyManager
+from .hotkey_manager import WM_HOTKEY, HotkeyManager
 from .screen_capture import ScreenCaptureOverlay
 from .settings_manager import SettingsManager, hotkey_display_from_expression
 from .text_capture import capture_selected_text
@@ -557,6 +557,7 @@ class BubbleWindow(QWidget):
     capture_requested = Signal()
     ocr_requested = Signal()
     settings_requested = Signal()
+    hotkey_id_received = Signal(int)
 
     BUBBLE_TIP = "本地翻译：点击输入 · Alt+Q 划词 · Alt+W 截图 · Alt+B 唤起面板"
 
@@ -728,6 +729,10 @@ class BubbleWindow(QWidget):
         painter.restore()
         painter.end()
 
+    def closeEvent(self, event) -> None:
+        self.quit_requested.emit()
+        super().closeEvent(event)
+
     def showEvent(self, event) -> None:
         # 跨屏拖动导致 DPI 变化时重建预渲染缓存
         if abs(self._screen_dpr() - getattr(self, "_cache_dpr", 0.0)) > 1e-6:
@@ -740,6 +745,10 @@ class BubbleWindow(QWidget):
             native_message = ctypes.cast(int(message), ctypes.POINTER(WindowsMessage)).contents
         except (TypeError, ValueError):
             return super().nativeEvent(event_type, message)
+        if native_message.message == WM_HOTKEY:
+            # 全局热键（RegisterHotKey 绑定到气泡窗口句柄）
+            self.hotkey_id_received.emit(int(native_message.wParam) & 0xFFFF)
+            return True, 0
         if native_message.message == ACTIVATE_MESSAGE:
             self.activate_requested.emit()
             return True, 0
@@ -989,6 +998,7 @@ class PanelWindow(QWidget):
     settings_toggled = Signal()
     hotkey_recorded = Signal(str, str)   # (action, 表达式；""=清空停用)
     recording_active = Signal(bool)
+    resident_toggled = Signal(bool)
 
     def __init__(self) -> None:
         super().__init__(None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
@@ -1114,8 +1124,8 @@ class PanelWindow(QWidget):
         self.settings_card.setObjectName("editorCard")
         self.settings_card.setFixedHeight(203)
         settings_layout = QVBoxLayout(self.settings_card)
-        settings_layout.setContentsMargins(16, 14, 16, 10)
-        settings_layout.setSpacing(8)
+        settings_layout.setContentsMargins(16, 10, 16, 8)
+        settings_layout.setSpacing(6)
 
         settings_title = QLabel("偏好设置", self.settings_card)
         settings_title.setObjectName("settingsTitle")
@@ -1143,6 +1153,11 @@ class PanelWindow(QWidget):
         self.translate_recorder = _hotkey_row("划词翻译", "translate")
         self.show_recorder = _hotkey_row("唤起面板", "show")
         self.ocr_recorder = _hotkey_row("识图翻译（OCR）", "ocr")
+
+        self.resident_checkbox = PreciseCheckBox("模型常驻（约 1.5GB 显存，不再自动休眠）", self.settings_card)
+        self.resident_checkbox.setToolTip("勾选后模型常驻显存、翻译零等待；关闭则空闲 15 分钟后自动休眠释放显存")
+        self.resident_checkbox.toggled.connect(self.resident_toggled)
+        settings_layout.addWidget(self.resident_checkbox)
 
         self.hotkey_hint = QLabel(self.settings_card)
         self.hotkey_hint.setObjectName("conflictHint")
@@ -1367,8 +1382,15 @@ class NativeTranslator:
         self.panel.settings_toggled.connect(self.toggle_settings_view)
         self.panel.hotkey_recorded.connect(self.on_hotkey_recorded)
         self.panel.recording_active.connect(self.on_recording_active)
+        self.panel.resident_toggled.connect(self.on_resident_toggled)
         self.app.focusWindowChanged.connect(self.on_focus_window_changed)
         self.bubble.settings_requested.connect(self.open_settings)
+        self.bubble.hotkey_id_received.connect(self.on_hotkey_id_received)
+        self.panel.resident_checkbox.blockSignals(True)
+        self.panel.resident_checkbox.setChecked(
+            int(self.settings.get("ai_idle_minutes", 15)) == 0
+        )
+        self.panel.resident_checkbox.blockSignals(False)
 
         self.supervisor = EngineSupervisor(
             ROOT,
@@ -1383,8 +1405,6 @@ class NativeTranslator:
         self.supervisor.process_died.connect(self.on_engine_died)
 
         self.hotkeys = HotkeyManager()
-        self.app.installNativeEventFilter(self.hotkeys)
-        self.hotkeys.triggered.connect(self.on_hotkey)
         self.apply_hotkeys()
 
         self.status_relay = StatusRelay()
@@ -1775,6 +1795,12 @@ class NativeTranslator:
 
     # ── 划词捕获 ─────────────────────────────────────────────
 
+    @Slot(int)
+    def on_hotkey_id_received(self, hotkey_id: int) -> None:
+        action = self.hotkeys.action_for_hotkey_id(hotkey_id)
+        if action:
+            self.on_hotkey(action)
+
     @Slot(str)
     def on_hotkey(self, action: str) -> None:
         if action == "translate":
@@ -1904,6 +1930,7 @@ class NativeTranslator:
 
     def apply_hotkeys(self) -> None:
         self._hotkey_status = self.hotkeys.reconfigure(
+            int(self.bubble.winId()),
             str(self.settings.get("hotkey") or ""),
             str(self.settings.get("show_hotkey") or ""),
             str(self.settings.get("ocr_hotkey") or ""),
@@ -1955,6 +1982,10 @@ class NativeTranslator:
         else:
             self.apply_hotkeys()
 
+    @Slot(bool)
+    def on_resident_toggled(self, checked: bool) -> None:
+        self.settings.save({"ai_idle_minutes": 0 if checked else 15})
+
     @Slot(str, str)
     def on_hotkey_recorded(self, action: str, expr: str) -> None:
         expr = (expr or "").strip()
@@ -1979,6 +2010,10 @@ class NativeTranslator:
     def on_settings_changed(self, diff: dict) -> None:
         if "launch_at_login" in diff:
             self._sync_autostart(bool(diff["launch_at_login"]))
+        if "ai_idle_minutes" in diff:
+            self.panel.resident_checkbox.blockSignals(True)
+            self.panel.resident_checkbox.setChecked(int(diff["ai_idle_minutes"]) == 0)
+            self.panel.resident_checkbox.blockSignals(False)
         if any(key in diff for key in ("hotkey", "ocr_hotkey", "ocr_enabled")):
             self.apply_hotkeys()
         if "server_port" in diff or "acceleration_device" in diff:
@@ -2014,8 +2049,13 @@ class NativeTranslator:
                 if hasattr(thread, "stop"):
                     thread.stop()
                 thread.wait(1000)
-        self.supervisor.stop(permanent=True)
-        self.supervisor.join_shutdown(3.0)   # 等待后台 taskkill/清扫完成，防止孤儿引擎
+        resident = int(self.settings.get("ai_idle_minutes", 15)) == 0
+        if resident and self.supervisor.detach_resident():
+            # 模型常驻：引擎留在后台继续运行（显存常驻），下次启动自动领养
+            pass
+        else:
+            self.supervisor.stop(permanent=True)
+            self.supervisor.join_shutdown(3.0)   # 等待后台 taskkill/清扫完成，防止孤儿引擎
         self.hotkeys.unregister_all()
         self.panel.close()
         self.bubble.close()

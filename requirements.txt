@@ -1,5 +1,5 @@
-# 6.9.x 为当前验证线（6.10+ 的 QtCore 在部分 Windows 环境存在 DLL 兼容问题）
-PySide6>=6.9,<6.10
+# PySide6 6.9.x 仅支持 Python<3.14；Python 3.14 下 pip 会自动选择 6.10+（已验证可用）
+PySide6>=6.9,<6.11
 fastapi>=0.104.0
 uvicorn>=0.23.2
 llama-cpp-python>=0.3.0
