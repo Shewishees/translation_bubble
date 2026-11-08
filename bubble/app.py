@@ -887,6 +887,10 @@ class HotkeyRecorder(QPushButton):
     def cancel_recording(self) -> None:
         self.stop_recording()
 
+    @property
+    def recording(self) -> bool:
+        return self._recording
+
     def _repolish(self) -> None:
         self.style().unpolish(self)
         self.style().polish(self)
@@ -991,7 +995,9 @@ class PanelWindow(QWidget):
         self.setWindowTitle("本地翻译")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(420, 370)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._direction_index = 0
+        self._active_recorder: Optional[HotkeyRecorder] = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -1124,8 +1130,10 @@ class PanelWindow(QWidget):
             recorder.hotkey_recorded.connect(
                 lambda expr, a=action: self.hotkey_recorded.emit(a, expr)
             )
-            recorder.recording_started.connect(lambda: self.recording_active.emit(True))
-            recorder.recording_stopped.connect(lambda: self.recording_active.emit(False))
+            recorder.recording_started.connect(
+                lambda r=recorder: self._set_active_recorder(r)
+            )
+            recorder.recording_stopped.connect(lambda: self._set_active_recorder(None))
             row.addWidget(label)
             row.addStretch(1)
             row.addWidget(recorder)
@@ -1284,6 +1292,22 @@ class PanelWindow(QWidget):
     @property
     def pinned(self) -> bool:
         return self.pin_button.isChecked()
+
+    def _set_active_recorder(self, recorder: Optional[HotkeyRecorder]) -> None:
+        """记录正在录制的胶囊；面板级按键事件委托给它，避免焦点漂移导致录制失灵。"""
+        self._active_recorder = recorder
+
+    def keyPressEvent(self, event) -> None:
+        if self._active_recorder is not None:
+            self._active_recorder.keyPressEvent(event)
+            return
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:
+        if self._active_recorder is not None:
+            self._active_recorder.keyReleaseEvent(event)
+            return
+        super().keyReleaseEvent(event)
 
     @property
     def settings_visible(self) -> bool:
@@ -1885,6 +1909,9 @@ class NativeTranslator:
             str(self.settings.get("ocr_hotkey") or ""),
             bool(self.settings.get("ocr_enabled")),
         )
+        failed = [action for action, ok in self._hotkey_status.items() if not ok]
+        if failed:
+            record_diagnostic(ROOT, "hotkey", "register-failed", RuntimeError(",".join(failed)))
         self._refresh_hotkey_displays()
         self._refresh_hotkey_hint()
 

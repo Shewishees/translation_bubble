@@ -12,6 +12,7 @@ shiboken6 VoidPtr → ctypes 的崩溃问题）。
 from __future__ import annotations
 
 import ctypes
+import os
 from ctypes import wintypes
 from typing import Dict, Optional, Tuple
 
@@ -146,6 +147,12 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
         if native_message.message == WM_HOTKEY:
             hotkey_id = int(native_message.wParam) & 0xFFFF
             binding = self._bindings.get(hotkey_id)
+            if os.environ.get("BUBBLE_HOTKEY_DEBUG") == "1":
+                print(
+                    f"[hotkey] WM_HOTKEY id={hotkey_id} -> "
+                    f"{binding[0] if binding else '未注册'}",
+                    flush=True,
+                )
             if binding:
                 self.triggered.emit(binding[0])
                 return True, 0
@@ -158,6 +165,7 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
 
         返回 {action: 是否成功}；表达式留空视为"停用该动作"，记为成功。
         """
+        debug = os.environ.get("BUBBLE_HOTKEY_DEBUG") == "1"
         self.unregister_all()
         candidates = [
             ("translate", HOTKEY_ID_TRANSLATE, translate_expr),
@@ -174,17 +182,30 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
                 continue
             parsed = parse_hotkey(expr)
             if parsed is None:
+                if debug:
+                    print(f"[hotkey] {action}: 表达式无法解析: {expr!r}", flush=True)
                 result[action] = False
                 continue
             modifiers, virtual_key = parsed
             if not user32.RegisterHotKey(
                 None, hotkey_id, modifiers | MOD_NOREPEAT, virtual_key
             ):
+                lasterr = ctypes.get_last_error()
+                if debug:
+                    print(
+                        f"[hotkey] {action}: RegisterHotKey 失败 ({expr!r}, "
+                        f"mods=0x{modifiers:X} vk=0x{virtual_key:X}) lasterr={lasterr}",
+                        flush=True,
+                    )
                 result[action] = False
                 continue
             self._bindings[hotkey_id] = (action, modifiers, virtual_key)
+            if debug:
+                print(f"[hotkey] {action}: 已注册 {expr!r} id={hotkey_id}", flush=True)
             result[action] = True
         self._all_registered = all(result.values())
+        if debug:
+            print(f"[hotkey] 注册结果: {result}", flush=True)
         self.registration_changed.emit(self._all_registered)
         return result
 
