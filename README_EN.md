@@ -55,6 +55,7 @@ no cloud, no telemetry, your text never leaves the machine.
 | Open the panel | Click the bubble | Bubble docks 16 px to the panel's right |
 | Selection translate | `Alt+Q` | Panel and bubble fly to the cursor, auto-filled and translated |
 | Screenshot OCR | `Alt+W` | Rounded full-screen selection, `Esc` to cancel |
+| Summon panel | `Alt+B` | Instantly show/hide the panel (state preserved) |
 | Pin panel | Title-bar 📌 | While pinned, clicking outside won't auto-hide |
 | Preferences | Title-bar ⚙ / right-click bubble | Record custom global hotkeys |
 
@@ -130,6 +131,7 @@ same scripts on a machine without `nvidia-smi` to get the universal CPU build.
 | Field | Default | Description |
 | --- | --- | --- |
 | `hotkey` / `hotkey_display` | `<alt>+q` / `Alt+Q` | Selection-translate hotkey (visual recorder via ⚙, empty = disabled) |
+| `show_hotkey` / `show_hotkey_display` | `<alt>+b` / `Alt+B` | Summon/hide the panel |
 | `ocr_enabled` / `ocr_hotkey` / `ocr_hotkey_display` | `true` / `<alt>+w` / `Alt+W` | Screenshot OCR translation |
 | `server_port` | `8989` | Local engine port (1024–65535; changing it restarts the engine) |
 | `acceleration_device` | `auto` | Inference device: auto / gpu / cpu |

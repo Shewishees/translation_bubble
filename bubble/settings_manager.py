@@ -23,6 +23,8 @@ DEFAULT_AI_IDLE_MINUTES = 15
 DEFAULTS: Dict[str, Any] = {
     "hotkey": "<alt>+q",
     "hotkey_display": "Alt+Q",
+    "show_hotkey": "<alt>+b",
+    "show_hotkey_display": "Alt+B",
     "ocr_enabled": True,
     "ocr_hotkey": "<alt>+w",
     "ocr_hotkey_display": "Alt+W",
@@ -121,6 +123,13 @@ class SettingsManager(QObject):
         if "hotkey_display" not in raw_keys or not data.get("hotkey_display"):
             data["hotkey_display"] = (
                 hotkey_display_from_expression(data.get("hotkey") or "")
+                or "未设置"
+            )
+        if "show_hotkey" not in raw_keys:
+            data["show_hotkey"] = DEFAULTS["show_hotkey"]
+        if "show_hotkey_display" not in raw_keys or not data.get("show_hotkey_display"):
+            data["show_hotkey_display"] = (
+                hotkey_display_from_expression(data.get("show_hotkey") or "")
                 or "未设置"
             )
         if "ocr_hotkey" not in raw_keys:

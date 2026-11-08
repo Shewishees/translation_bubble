@@ -177,7 +177,7 @@ class NativeUiTests(unittest.TestCase):
                 patch.object(ui, "cleanup_legacy_autostart", lambda: None), \
                 patch.object(ui, "set_autostart", lambda _enabled: None), \
                 patch.object(ui, "is_autostart_enabled", lambda: False), \
-                patch.object(ui.HotkeyManager, "reconfigure", lambda self, *a, **k: {"translate": True, "ocr": True}):
+                patch.object(ui.HotkeyManager, "reconfigure", lambda self, *a, **k: {"translate": True, "show": True, "ocr": True}):
             self.controller = ui.NativeTranslator(self.qt_app)
 
     def tearDown(self):
@@ -350,7 +350,8 @@ class NativeUiTests(unittest.TestCase):
             return controller.settings.snapshot()
 
         with patch.object(controller.settings, "save", side_effect=fake_save), \
-                patch.object(controller.hotkeys, "reconfigure", return_value={"translate": True, "ocr": True}):
+                patch.object(controller.hotkeys, "reconfigure",
+                             return_value={"translate": True, "show": True, "ocr": True}):
             controller.on_hotkey_recorded("translate", "<alt>+q")
         self.assertEqual(saved.get("hotkey"), "<alt>+q")
         self.assertEqual(saved.get("hotkey_display"), "Alt+Q")
@@ -358,15 +359,25 @@ class NativeUiTests(unittest.TestCase):
         self.assertTrue(controller.panel.hotkey_hint.isHidden())
 
         with patch.object(controller.settings, "save", side_effect=fake_save), \
-                patch.object(controller.hotkeys, "reconfigure", return_value={"translate": True, "ocr": False}):
+                patch.object(controller.hotkeys, "reconfigure",
+                             return_value={"translate": True, "show": True, "ocr": True}):
+            controller.on_hotkey_recorded("show", "<alt>+b")
+        self.assertEqual(saved.get("show_hotkey"), "<alt>+b")
+        self.assertEqual(saved.get("show_hotkey_display"), "Alt+B")
+        self.assertEqual(controller.panel.show_recorder.text(), "Alt+B")
+
+        with patch.object(controller.settings, "save", side_effect=fake_save), \
+                patch.object(controller.hotkeys, "reconfigure",
+                             return_value={"translate": True, "show": True, "ocr": False}):
             controller.on_hotkey_recorded("ocr", "<ctrl>+<shift>+s")
         self.assertFalse(controller.panel.hotkey_hint.isHidden())
         self.assertIn("快捷键冲突，请更换组合", controller.panel.hotkey_hint.text())
 
     def test_hotkey_reconfigure_supports_empty_disable(self):
         manager = ui.HotkeyManager()
-        result = manager.reconfigure("", "", True)
+        result = manager.reconfigure("", "", "", True)
         self.assertTrue(result["translate"])
+        self.assertTrue(result["show"])
         self.assertEqual(manager._bindings, {})
         manager.unregister_all()
 

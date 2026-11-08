@@ -87,6 +87,7 @@ def main() -> int:
     panel.gear_button.setFont(symbol_font)
     panel.show_settings_view(True)
     panel.set_hotkey_display("translate", "Alt+Q")
+    panel.set_hotkey_display("show", "Alt+B")
     panel.set_hotkey_display("ocr", "Alt+W")
     app.processEvents()
     settings_img = qt_to_pil(panel.grab())

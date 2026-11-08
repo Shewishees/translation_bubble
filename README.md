@@ -54,6 +54,7 @@
 | 打开翻译面板 | 点击气泡 | 气泡自动停靠面板右侧 16px |
 | 划词翻译 | `Alt+Q` | 面板与气泡飞至光标附近，自动填入并流式翻译 |
 | 截图 OCR 翻译 | `Alt+W` | 全屏圆角框选，Esc 取消 |
+| 唤起面板 | `Alt+B` | 迅速唤起/收起翻译面板（保留上次内容） |
 | 钉住面板 | 标题栏 📌 | 点亮后点击外部空白不自动收起 |
 | 偏好设置 | 标题栏 ⚙ / 右键气泡 | 录制自定义全局快捷键 |
 
@@ -128,6 +129,7 @@ PopTrans 指南安装 CPU 轮 `llama-cpp-python`）。
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `hotkey` / `hotkey_display` | `<alt>+q` / `Alt+Q` | 划词翻译快捷键（面板 ⚙ 可视化录制，留空停用） |
+| `show_hotkey` / `show_hotkey_display` | `<alt>+b` / `Alt+B` | 唤起/收起翻译面板快捷键 |
 | `ocr_enabled` / `ocr_hotkey` / `ocr_hotkey_display` | `true` / `<alt>+w` / `Alt+W` | 截图 OCR 翻译 |
 | `server_port` | `8989` | 本地引擎端口（1024–65535，改动自动重启引擎） |
 | `acceleration_device` | `auto` | 推理设备：auto / gpu / cpu |

@@ -99,6 +99,15 @@ RUN_VALUE_NAME = "LocalTranslateBubble"
 DIRECTION_STATES = ("auto", "zh-en", "en-zh")
 
 
+def _text_looks_chinese(text: str) -> bool:
+    """简化的中英文判别（与引擎 _is_chinese 的 30% 规则一致），用于自动档方向提示。"""
+    body = (text or "").replace(" ", "").replace("\n", "").replace("\t", "")
+    if not body:
+        return False
+    cjk = sum(1 for ch in body if "\u4e00" <= ch <= "\u9fff" or "\u3400" <= ch <= "\u4dbf")
+    return cjk / len(body) > 0.3
+
+
 class WindowsMessage(ctypes.Structure):
     _fields_ = [
         ("hwnd", wintypes.HWND),
@@ -549,7 +558,7 @@ class BubbleWindow(QWidget):
     ocr_requested = Signal()
     settings_requested = Signal()
 
-    BUBBLE_TIP = "本地翻译：点击输入 · Alt+Q 划词 · Alt+W 截图"
+    BUBBLE_TIP = "本地翻译：点击输入 · Alt+Q 划词 · Alt+W 截图 · Alt+B 唤起面板"
 
     MARGIN = 12                    # 每侧透明边距（容纳阴影 + 浮动位移空间）
     VISUAL_SIZE = 44               # 气泡视觉盒边长（原 88 的一半）
@@ -1124,6 +1133,7 @@ class PanelWindow(QWidget):
             return recorder
 
         self.translate_recorder = _hotkey_row("划词翻译", "translate")
+        self.show_recorder = _hotkey_row("唤起面板", "show")
         self.ocr_recorder = _hotkey_row("识图翻译（OCR）", "ocr")
 
         self.hotkey_hint = QLabel(self.settings_card)
@@ -1258,6 +1268,17 @@ class PanelWindow(QWidget):
     def direction_state(self) -> str:
         return DIRECTION_STATES[self._direction_index]
 
+    def update_auto_direction_hint(self, text: str) -> None:
+        """自动档下把当前判定方向透出在药丸上（自动 → 英 / 自动 → 中），消除方向困惑。"""
+        if DIRECTION_STATES[self._direction_index] != "auto":
+            return
+        if not text.strip():
+            self.language.setText("自动")
+        elif _text_looks_chinese(text):
+            self.language.setText("自动 → 中")
+        else:
+            self.language.setText("自动 → 英")
+
     # ── 视图切换 / 图钉 / 快捷键显示 ────────────────────────
 
     @property
@@ -1276,8 +1297,12 @@ class PanelWindow(QWidget):
         self.gear_button.style().polish(self.gear_button)
 
     def set_hotkey_display(self, action: str, text: str) -> None:
-        recorder = self.translate_recorder if action == "translate" else self.ocr_recorder
-        recorder.set_display(text)
+        recorders = {
+            "translate": self.translate_recorder,
+            "show": self.show_recorder,
+            "ocr": self.ocr_recorder,
+        }
+        recorders[action].set_display(text)
 
     def set_conflict_hint(self, message: str) -> None:
         if message:
@@ -1631,11 +1656,13 @@ class NativeTranslator:
         if not text:
             self.debounce.stop()
             self.panel.set_translation("")
+            self.panel.update_auto_direction_hint("")
             if self.supervisor.is_ready:
                 self.set_status("")
             else:
                 self.set_status("正在唤醒本地 GGUF 模型…")
             return
+        self.panel.update_auto_direction_hint(text)
         if not self.supervisor.is_running:
             self.supervisor.ensure_running()
         self.set_status("翻译中…" if self.supervisor.is_ready else "正在唤醒本地 GGUF 模型…")
@@ -1714,8 +1741,13 @@ class NativeTranslator:
         self.request_id += 1
         self.debounce.stop()
         self.panel.set_translation("")
-        if self.panel.source.toPlainText().strip():
-            self.schedule_translation()
+        text = self.panel.source.toPlainText().strip()
+        if not text:
+            self.panel.update_auto_direction_hint("")
+            return
+        self.panel.update_auto_direction_hint(text)
+        # 切换方向后立即重译（不等 600ms 防抖），避免"切了没反应"的困惑
+        self.start_translation()
 
     # ── 划词捕获 ─────────────────────────────────────────────
 
@@ -1725,6 +1757,12 @@ class NativeTranslator:
             self.start_capture()
         elif action == "ocr":
             self.start_ocr()
+        elif action == "show":
+            # 迅速唤起：面板显示中则收起，否则立即唤起（保留上次状态）
+            if self.panel.isVisible():
+                self.hide_panel()
+            else:
+                self.open_panel()
 
     def start_capture(self) -> None:
         if self.capture_thread and self.capture_thread.isRunning():
@@ -1843,6 +1881,7 @@ class NativeTranslator:
     def apply_hotkeys(self) -> None:
         self._hotkey_status = self.hotkeys.reconfigure(
             str(self.settings.get("hotkey") or ""),
+            str(self.settings.get("show_hotkey") or ""),
             str(self.settings.get("ocr_hotkey") or ""),
             bool(self.settings.get("ocr_enabled")),
         )
@@ -1854,11 +1893,14 @@ class NativeTranslator:
             "translate", str(self.settings.get("hotkey_display") or "未设置")
         )
         self.panel.set_hotkey_display(
+            "show", str(self.settings.get("show_hotkey_display") or "未设置")
+        )
+        self.panel.set_hotkey_display(
             "ocr", str(self.settings.get("ocr_hotkey_display") or "未设置")
         )
 
     def _refresh_hotkey_hint(self) -> None:
-        names = {"translate": "划词翻译", "ocr": "识图翻译"}
+        names = {"translate": "划词翻译", "show": "唤起面板", "ocr": "识图翻译"}
         failed = [names.get(action, action) for action, ok in self._hotkey_status.items() if not ok]
         if failed:
             self.panel.set_conflict_hint("快捷键冲突，请更换组合：" + "、".join(failed))
@@ -1889,16 +1931,16 @@ class NativeTranslator:
     @Slot(str, str)
     def on_hotkey_recorded(self, action: str, expr: str) -> None:
         expr = (expr or "").strip()
-        if action == "translate":
-            updates = {
-                "hotkey": expr,
-                "hotkey_display": hotkey_display_from_expression(expr) or "未设置",
-            }
-        else:
-            updates = {
-                "ocr_hotkey": expr,
-                "ocr_hotkey_display": hotkey_display_from_expression(expr) or "未设置",
-            }
+        key_map = {
+            "translate": ("hotkey", "hotkey_display"),
+            "show": ("show_hotkey", "show_hotkey_display"),
+            "ocr": ("ocr_hotkey", "ocr_hotkey_display"),
+        }
+        key, display_key = key_map[action]
+        updates = {
+            key: expr,
+            display_key: hotkey_display_from_expression(expr) or "未设置",
+        }
         try:
             self.settings.save(updates)
         except OSError:

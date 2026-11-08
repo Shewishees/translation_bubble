@@ -28,6 +28,7 @@ MOD_NOREPEAT = 0x4000
 
 HOTKEY_ID_TRANSLATE = 1
 HOTKEY_ID_OCR = 2
+HOTKEY_ID_SHOW = 3
 
 user32.RegisterHotKey.argtypes = (wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT)
 user32.RegisterHotKey.restype = wintypes.BOOL
@@ -146,7 +147,7 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
 
     # ── 注册管理 ─────────────────────────────────────────────
 
-    def reconfigure(self, translate_expr: str, ocr_expr: str, ocr_enabled: bool) -> dict:
+    def reconfigure(self, translate_expr: str, show_expr: str, ocr_expr: str, ocr_enabled: bool) -> dict:
         """按新配置重注册全部快捷键（注销旧键 → 注册新键）。
 
         返回 {action: 是否成功}；表达式留空视为"停用该动作"，记为成功。
@@ -154,6 +155,7 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
         self.unregister_all()
         candidates = [
             ("translate", HOTKEY_ID_TRANSLATE, translate_expr),
+            ("show", HOTKEY_ID_SHOW, show_expr),
         ]
         if ocr_enabled:
             candidates.append(("ocr", HOTKEY_ID_OCR, ocr_expr))
