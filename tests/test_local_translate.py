@@ -22,6 +22,7 @@ from bubble.hotkey_manager import (
     MOD_ALT,
     MOD_CONTROL,
     MOD_SHIFT,
+    HotkeyMessage,
     parse_hotkey,
 )
 from bubble.settings_manager import DEFAULTS, SettingsManager
@@ -380,6 +381,38 @@ class NativeUiTests(unittest.TestCase):
         self.assertTrue(result["show"])
         self.assertEqual(manager._bindings, {})
         manager.unregister_all()
+
+    def test_native_filter_matches_hotkey_message(self):
+        # 回归：PySide6 的 eventType 是 windows_generic_MSG（MSG 大写），
+        # 过滤器必须大小写不敏感匹配，否则全局热键永远不触发
+        import ctypes
+
+        from PySide6.QtCore import QByteArray
+
+        manager = ui.HotkeyManager()
+        manager.reconfigure("<ctrl>+<alt>+f12", "", "", False)
+        triggered = []
+        manager.triggered.connect(triggered.append)
+
+        msg = HotkeyMessage()
+        msg.message = 0x0312          # WM_HOTKEY
+        msg.wParam = 1                # HOTKEY_ID_TRANSLATE
+        handled, _ = manager.nativeEventFilter(
+            QByteArray(b"windows_generic_MSG"),
+            ctypes.addressof(msg),
+        )
+        self.assertTrue(handled)
+        self.assertEqual(triggered, ["translate"])
+        manager.unregister_all()
+
+    def test_sendinput_structure_layout(self):
+        # 回归：INPUT 的 union 必须以 MOUSEINPUT 对齐（x64 = 40 字节），
+        # 否则 SendInput 以 ERROR_INVALID_PARAMETER 拒绝，划词取词失效
+        import ctypes
+
+        from bubble import text_capture
+
+        self.assertEqual(ctypes.sizeof(text_capture.INPUT), 40)
 
     def test_settings_hot_reload_restarts_engine(self):
         controller = self.controller

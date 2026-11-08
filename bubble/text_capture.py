@@ -38,8 +38,33 @@ class KEYBDINPUT(ctypes.Structure):
     ]
 
 
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx", wintypes.LONG),
+        ("dy", wintypes.LONG),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
+    ]
+
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [
+        ("uMsg", wintypes.DWORD),
+        ("wParamL", wintypes.WORD),
+        ("wParamH", wintypes.WORD),
+    ]
+
+
 class _INPUTUNION(ctypes.Union):
-    _fields_ = [("ki", KEYBDINPUT)]
+    # union 必须以最大成员 MOUSEINPUT 对齐（x64 上 INPUT 总长 40 字节），
+    # 否则 SendInput 以 ERROR_INVALID_PARAMETER (87) 拒绝注入，按键模拟失效
+    _fields_ = [
+        ("mi", MOUSEINPUT),
+        ("ki", KEYBDINPUT),
+        ("hi", HARDWAREINPUT),
+    ]
 
 
 class INPUT(ctypes.Structure):
@@ -90,7 +115,7 @@ def _send_ctrl_c() -> None:
         key_event(VK_CONTROL, KEYEVENTF_KEYUP),
     ]
     array = (INPUT * len(sequence))(*sequence)
-    user32.SendInput(len(sequence), array, ctypes.sizeof(INPUT))
+    return user32.SendInput(len(sequence), array, ctypes.sizeof(INPUT)) == len(sequence)
 
 
 def _open_clipboard(retries: int = 6) -> bool:

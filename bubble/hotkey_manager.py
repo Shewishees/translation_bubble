@@ -130,19 +130,25 @@ class HotkeyManager(QObject, QAbstractNativeEventFilter):
     # ── 原生事件过滤 ─────────────────────────────────────────
 
     def nativeEventFilter(self, event_type, message):  # noqa: N802 (Qt 命名)
-        if event_type == QByteArray(b"windows_generic_msg"):
-            try:
-                native_message = ctypes.cast(
-                    int(message), ctypes.POINTER(HotkeyMessage)
-                ).contents
-            except (TypeError, ValueError):
+        # 注意：PySide6 实际传入的 eventType 是 b"windows_generic_MSG"（MSG 大写），
+        # 必须大小写不敏感地比较，否则热键永远无法触发。
+        try:
+            if bytes(event_type).lower() != b"windows_generic_msg":
                 return False, 0
-            if native_message.message == WM_HOTKEY:
-                hotkey_id = int(native_message.wParam) & 0xFFFF
-                binding = self._bindings.get(hotkey_id)
-                if binding:
-                    self.triggered.emit(binding[0])
-                    return True, 0
+        except (TypeError, ValueError):
+            return False, 0
+        try:
+            native_message = ctypes.cast(
+                int(message), ctypes.POINTER(HotkeyMessage)
+            ).contents
+        except (TypeError, ValueError):
+            return False, 0
+        if native_message.message == WM_HOTKEY:
+            hotkey_id = int(native_message.wParam) & 0xFFFF
+            binding = self._bindings.get(hotkey_id)
+            if binding:
+                self.triggered.emit(binding[0])
+                return True, 0
         return False, 0
 
     # ── 注册管理 ─────────────────────────────────────────────
