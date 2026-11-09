@@ -96,7 +96,7 @@ class EngineSupervisor(QObject):
     @property
     def is_running(self) -> bool:
         with self._lock:
-            return self._proc is not None and self._proc.poll() is None
+            return (self._proc is not None and self._proc.poll() is None) or self._adopted
 
     def device_info(self) -> dict:
         with self._lock:
@@ -118,7 +118,7 @@ class EngineSupervisor(QObject):
         with self._lock:
             if self._stopping or self._spawning:
                 return
-            if self._proc is not None and self._proc.poll() is None:
+            if (self._proc is not None and self._proc.poll() is None) or self._adopted:
                 self._last_activity = time.time()
                 self._ensure_idle_timer()
                 return
@@ -130,7 +130,7 @@ class EngineSupervisor(QObject):
             with self._lock:
                 if self._stopping:
                     return
-                if self._proc is not None and self._proc.poll() is None:
+                if (self._proc is not None and self._proc.poll() is None) or self._adopted:
                     return
             # 领养：端口上已有健康引擎（常驻遗留 / 上次未随 UI 退出），
             # 直接挂载监视而不重新拉起，模型保持已加载状态，零等待
@@ -318,7 +318,7 @@ class EngineSupervisor(QObject):
         with self._lock:
             if not self._ready:
                 return
-            if self._proc is None or self._proc.poll() is not None:
+            if not ((self._proc is not None and self._proc.poll() is None) or self._adopted):
                 return
             idle_seconds = time.time() - self._last_activity
         if idle_seconds >= idle_minutes * 60:
@@ -336,6 +336,7 @@ class EngineSupervisor(QObject):
         with self._lock:
             self._stopping = True
             self._ready = False
+            self._adopted = False
             proc = self._proc
             self._proc = None
         self._idle_timer_command.emit(False)
@@ -393,9 +394,15 @@ class EngineSupervisor(QObject):
         with self._lock:
             self._stopping = True
             self._ready = False
+            self._adopted = False
             proc = self._proc
             self._proc = None
         self._terminate_process_tree(proc)
+        if proc is None:
+            try:
+                self._sweep_leftover_engines()
+            except Exception:
+                pass
         self._close_log()
 
     def restart(self) -> None:

@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -443,6 +443,32 @@ class NativeUiTests(unittest.TestCase):
             supervisor._adopted = True
             self.assertTrue(supervisor.detach_resident())
             self.assertFalse(supervisor._adopted)
+
+    def test_supervisor_adopted_mode_is_running_and_translates(self):
+        controller = self.controller
+        supervisor = controller.supervisor
+        supervisor._adopted = True
+        supervisor._ready = True
+        supervisor._proc = None
+
+        # 1. 领养模式下 is_running 必须为 True（历史缺陷：此前仅判断 _proc，导致常驻领养后热键与面板输入死锁在"正在唤醒"）
+        self.assertTrue(supervisor.is_running)
+
+        # 2. ensure_running 不得重复发起拉起流程
+        with patch("threading.Thread") as mock_thread:
+            supervisor.ensure_running()
+            mock_thread.assert_not_called()
+
+        # 3. 输入文本触发翻译，不得被拦截在"正在唤醒本地 GGUF 模型…"
+        controller.panel.source.setPlainText("Hello")
+        with patch.object(ui, "TranslationStreamThread") as mock_stream:
+            mock_instance = MagicMock()
+            mock_stream.return_value = mock_instance
+            controller.start_translation()
+            mock_stream.assert_called_once()
+            mock_instance.start.assert_called_once()
+            self.assertNotEqual(controller.panel.status_label.text(), "正在唤醒本地 GGUF 模型…")
+
 
 
 
