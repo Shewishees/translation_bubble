@@ -2014,7 +2014,18 @@ class NativeTranslator:
             self.panel.resident_checkbox.blockSignals(True)
             self.panel.resident_checkbox.setChecked(int(diff["ai_idle_minutes"]) == 0)
             self.panel.resident_checkbox.blockSignals(False)
-        if any(key in diff for key in ("hotkey", "ocr_hotkey", "ocr_enabled")):
+        if any(
+            key in diff
+            for key in (
+                "hotkey",
+                "hotkey_display",
+                "show_hotkey",
+                "show_hotkey_display",
+                "ocr_hotkey",
+                "ocr_hotkey_display",
+                "ocr_enabled",
+            )
+        ):
             self.apply_hotkeys()
         if "server_port" in diff or "acceleration_device" in diff:
             if self.supervisor.is_running:

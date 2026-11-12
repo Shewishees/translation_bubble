@@ -412,6 +412,12 @@ class NativeUiTests(unittest.TestCase):
             controller.on_settings_changed({"hotkey": "<ctrl>+<alt>+t"})
             restart.assert_called_once()  # 快捷键变更不触发引擎重启
 
+    def test_settings_hot_reload_reapplies_show_hotkey(self):
+        controller = self.controller
+        with patch.object(controller, "apply_hotkeys") as apply_hotkeys:
+            controller.on_settings_changed({"show_hotkey": "<alt>+b"})
+            apply_hotkeys.assert_called_once()
+
     def test_resident_checkbox_toggles_ai_idle_minutes(self):
         controller = self.controller
         saved = {}
